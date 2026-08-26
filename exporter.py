@@ -60,6 +60,7 @@ from .format_3ds import (
     _3ds_string,
     _3ds_uint,
     _3ds_ushort,
+    preview_sane_name,
     reset_name_tables,
     sane_name,
     uv_key,
@@ -73,21 +74,30 @@ from .tmf_validation import (
     ABS_Y_MM,
     ABS_Z_MM,
     OPTIONAL_MESHES,
+    PROJECTOR_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
+    is_projector_mesh,
+    mesh_export_names,
     to_tmf_mm,
 )
 
-ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES) | frozenset(OPTIONAL_MESHES)
+ALLOWED_MESH_NAMES = mesh_export_names() | frozenset(OPTIONAL_MESHES)
+MESH_CHUNK_NAMES = mesh_export_names()
 
 
 def forced_material_name(object_name):
     """Override MATERIAL name only for projector meshes (when exported)."""
-    if object_name == "ProjShad":
+    if not is_projector_mesh(object_name):
+        return None
+    base = (
+        object_name.rsplit(".", 1)[0]
+        if "." in object_name and object_name.rsplit(".", 1)[1].isdigit()
+        else object_name
+    )
+    if base.casefold() == "projshad":
         return "ProjShad"
-    if object_name.startswith("LightFProj"):
-        return "LightFProj"
-    return None
+    return "LightFProj"
 
 
 def export_material_name(object_name, material=None, texture_filename=None):
@@ -103,7 +113,7 @@ def export_material_name(object_name, material=None, texture_filename=None):
 
 
 def _display_name(value):
-    """Pretty-print sane_name bytes/str for console logs."""
+    """Pretty-print name bytes/str for console logs."""
     if value is None:
         return None
     if isinstance(value, bytes):
@@ -140,8 +150,8 @@ def effective_export_translation(location, pivot):
 
 def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
     """
-    Compute the exact MATERIAL / OBJECT_MATERIAL / MAPFILE strings written to .3ds,
-    matching make_faces_chunk / _register_materials / make_material_chunk.
+    Compute the MATERIAL / OBJECT_MATERIAL / MAPFILE strings for diagnostics.
+    Uses preview_sane_name so logging never mutates the global 3DS name tables.
     """
     slots = _material_slot_names(ob, mesh)
     primary_mat = None
@@ -191,9 +201,9 @@ def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
         "blender_slots": slots,
         "blender_image": image_name,
         "expected_map": expected,
-        "3ds_mat_name": _display_name(sane_name(mat_name)) if mat_name else None,
-        "3ds_mapfile": _display_name(sane_name(mapfile)) if mapfile else None,
-        "face_mat_names": [_display_name(sane_name(n)) for n in face_names],
+        "3ds_mat_name": preview_sane_name(mat_name) if mat_name else None,
+        "3ds_mapfile": preview_sane_name(mapfile) if mapfile else None,
+        "face_mat_names": [preview_sane_name(n) for n in face_names],
         "has_uv": has_uv,
         "warns": warns,
     }
@@ -203,11 +213,28 @@ def _fmt_vec(vec, digits=4):
     return f"({vec[0]:.{digits}f}, {vec[1]:.{digits}f}, {vec[2]:.{digits}f})"
 
 
-def _vlog(verbose, message, log_lines=None):
-    if verbose:
+def _vlog(verbose, message, log_lines=None, to_console=True):
+    """Append a verbose line; optionally print (console floods can freeze Blender)."""
+    if not verbose:
+        return
+    if log_lines is not None:
+        log_lines.append(message)
+    if to_console:
         print(message)
-        if log_lines is not None:
-            log_lines.append(message)
+
+
+def write_verbose_log(filepath, log_lines):
+    """Write the sidecar log once. Returns the log path or None on failure."""
+    log_path = filepath.rsplit(".", 1)[0] + ".tmf-export.log"
+    try:
+        text = "\n".join(log_lines or []) + "\n"
+        with open(log_path, "w", encoding="utf-8", newline="\n") as log_file:
+            log_file.write(text)
+            log_file.flush()
+        return log_path
+    except OSError as exc:
+        print(f"  [WARN] could not write verbose log: {exc}")
+        return None
 
 
 def _mesh_world_bounds(ob, mesh):
@@ -244,7 +271,11 @@ def _material_slot_names(ob, mesh):
 
 
 def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", log_lines=None):
-    """Print one verbose line block for a collected / written object."""
+    """Record one verbose block for a collected / written object.
+
+    Detail goes to the sidecar log; only the status line hits the System Console
+    (flooding print() on Windows freezes Blender).
+    """
     if not verbose:
         return
 
@@ -255,15 +286,27 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
     parent = ob.parent.name if ob.parent else "<none>"
     n_verts = len(mesh.vertices) if mesh is not None else 0
     n_tris = len(mesh.loop_triangles) if mesh is not None else 0
+
+    # Collect phase: one short console + log line (full dump is on WRITTEN).
+    if status == "COLLECTED":
+        _vlog(
+            True,
+            f"  [{status}] {ob.name}  type={ob.type}  verts={n_verts}  "
+            f"loc={_fmt_vec(loc)}",
+            log_lines,
+            to_console=True,
+        )
+        return
+
     bounds = _mesh_world_bounds(ob, mesh) if mesh is not None else None
     bind = resolve_3ds_material_binding(ob, mesh, texture_filename, image)
     pivot = unparented_kf_pivot(ob, loc) if ob.parent is None else None
     eff_t = effective_export_translation(loc, pivot) if pivot is not None else None
 
-    def out(msg):
-        _vlog(True, msg, log_lines)
+    def out(msg, to_console=False):
+        _vlog(True, msg, log_lines, to_console=to_console)
 
-    out(f"  [{status}] {ob.name}  type={ob.type}")
+    out(f"  [{status}] {ob.name}  type={ob.type}", to_console=True)
     out(f"         parent={parent}")
     out(f"         location={_fmt_vec(loc)}  rotation={_fmt_vec(rot)}  scale={_fmt_vec(scale)}")
     out(f"         dimensions={_fmt_vec(dims)}  verts={n_verts}  tris={n_tris}")
@@ -277,16 +320,16 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
             f"         kf_pivot={_fmt_vec(pivot)}  pos_track={_fmt_vec(loc)}  "
             f"export_translation={_fmt_vec(eff_t)}"
         )
-        if mesh is not None and abs(eff_t[0] - loc[0]) + abs(eff_t[1] - loc[1]) + abs(
-            eff_t[2] - loc[2]
-        ) > 1e-6:
+        delta = (
+            abs(eff_t[0] - loc[0]) + abs(eff_t[1] - loc[1]) + abs(eff_t[2] - loc[2])
+        )
+        if mesh is not None and delta > 1e-6:
             out(
                 "         [WARN] export_translation != object location "
-                "(POS-PIVOT not cancelled — double transform risk)"
+                "(POS-PIVOT not cancelled — double transform risk)",
+                to_console=True,
             )
-        if mesh is not None:
-            # Approximate TM AABB: local verts shifted by export_translation
-            # (identity rotation — matches this car's applied transforms).
+            # Only walk verts when the cancel failed (rare / diagnostic).
             xs, ys, zs = [], [], []
             for vert in mesh.vertices:
                 xs.append(vert.co[0] + eff_t[0])
@@ -295,17 +338,20 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
             if xs:
                 emin = (min(xs), min(ys), min(zs))
                 emax = (max(xs), max(ys), max(zs))
-                out(
-                    f"         export_aabb min={_fmt_vec(emin)} max={_fmt_vec(emax)}"
-                )
+                out(f"         export_aabb min={_fmt_vec(emin)} max={_fmt_vec(emax)}")
                 y_lo, y_hi = ABS_Y_MM
                 z_lo, z_hi = ABS_Z_MM
                 if emin[1] < y_lo or emax[1] > y_hi or emin[2] < z_lo or emax[2] > z_hi:
                     out(
                         f"         [WARN] export_aabb outside TMF max box "
-                        f"Y{list(ABS_Y_MM)} Z{list(ABS_Z_MM)} "
-                        f"(Quality 2 bounding-box failure likely)"
+                        f"Y{list(ABS_Y_MM)} Z{list(ABS_Z_MM)}",
+                        to_console=True,
                     )
+        elif bounds is not None:
+            out(
+                f"         export_aabb min={_fmt_vec(bounds['min'])} "
+                f"max={_fmt_vec(bounds['max'])}  (matches blender_world)"
+            )
     out(f"         blender_slots={bind['blender_slots'] or '<none>'}")
     out(f"         has_uv={bind['has_uv']}")
     out(
@@ -318,7 +364,7 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
         f"blender_image={bind['blender_image'] or '<none>'}"
     )
     for warn in bind["warns"]:
-        out(f"         [WARN] {warn}")
+        out(f"         [WARN] {warn}", to_console=True)
 
 
 
@@ -798,22 +844,20 @@ def _evaluated_mesh_copy(obj, depsgraph):
 
 
 def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
-    """Gather body/wheel meshes and optional light helpers for export.
+    """Gather body/wheel/projector meshes and optional light helpers for export.
 
-    ProjShad / LightFProj / MaxBox are always stripped (engine uses .dds only).
-    Required meshes are still force-included when Selection Only is on.
-
-    Light helpers (LightFL1… / Nadeo FLLight1…) are always KFDATA-only dummy
-    nodes — matching 2.1.2 Empties — even if the Blender object is a tiny plane.
-    Writing those zero-area planes as mesh chunks caused Quality 2 bbox (0.
+    MaxBox is always stripped (scale guide). ProjShad / LightFProj are exported
+    as real meshes — their size defines Quality 2 / headlight projection.
+    Light helpers are KFDATA-only (like 2.1.2 Empties), even if they are planes.
     """
     scene = context.scene
     visible = [ob for ob in scene.objects if ob.visible_get()]
+    force_names = frozenset(REQUIRED_MESHES) | frozenset(PROJECTOR_MESHES)
     if use_selection:
         objects = [
             ob
             for ob in visible
-            if ob.select_get() or ob.name in REQUIRED_MESHES
+            if ob.select_get() or ob.name in force_names
         ]
     else:
         objects = visible
@@ -837,14 +881,12 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
         if is_export_blacklisted(ob.name):
             _vlog(
                 verbose,
-                f"  [SKIP] {ob.name}  reason=blacklisted "
-                f"(ProjShad/LightFProj/MaxBox — .dds / guide only)",
+                f"  [SKIP] {ob.name}  reason=blacklisted (MaxBox — scale guide only)",
                 log_lines,
             )
             continue
 
-        # 2.1.2 wrote lights as Empties (KFDATA only). Keep Blender planes for
-        # authoring, but never emit their mesh geometry into the .3ds.
+        # Light markers: KFDATA-only (never write zero-area mesh chunks).
         if ob.name in OPTIONAL_MESHES:
             empty_objects.append(ob)
             _vlog(
@@ -864,7 +906,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             )
             continue
 
-        if ob.name not in REQUIRED_MESHES:
+        if ob.name not in MESH_CHUNK_NAMES and not is_projector_mesh(ob.name):
             _vlog(
                 verbose,
                 f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}",
@@ -906,10 +948,13 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                     log_lines,
                 )
                 continue
-            if ob_derived.name not in REQUIRED_MESHES:
+            if (
+                ob_derived.name not in MESH_CHUNK_NAMES
+                and not is_projector_mesh(ob_derived.name)
+            ):
                 _vlog(
                     verbose,
-                    f"  [SKIP] {ob_derived.name}  reason=not a required body/wheel",
+                    f"  [SKIP] {ob_derived.name}  reason=not a body/wheel/projector",
                     log_lines,
                 )
                 continue
@@ -981,8 +1026,8 @@ def do_export(
             mat_name = material.name if material else (
                 texture_filename.rsplit(".", 1)[0] if texture_filename else "None"
             )
-        sane_mat = _display_name(sane_name(mat_name))
-        sane_map = _display_name(sane_name(texture_filename)) if texture_filename else None
+        sane_mat = preview_sane_name(mat_name)
+        sane_map = preview_sane_name(texture_filename) if texture_filename else None
         _vlog(
             verbose,
             f"  [MAT] name={sane_mat}  mapfile={sane_map or '<none>'}  "
@@ -1094,30 +1139,33 @@ def do_export(
                 f"  [WARN] missing required meshes in file: {', '.join(missing_req)}",
                 log_lines,
             )
-        for banned in ("ProjShad", "LightFProj", "MaxBox", "Maxbox"):
-            if banned in present:
-                _vlog(
-                    verbose,
-                    f"  [WARN] {banned} was written (should be blacklisted)",
-                    log_lines,
-                )
-            else:
-                _vlog(
-                    verbose,
-                    f"  [OK] {banned} not in .3ds (correct — use .dds / guide only)",
-                    log_lines,
-                )
-
-        log_path = filename.rsplit(".", 1)[0] + ".tmf-export.log"
-        try:
-            with open(log_path, "w", encoding="utf-8") as log_file:
-                log_file.write("\n".join(log_lines or []) + "\n")
-            _vlog(verbose, f"Verbose log also saved: {log_path}", log_lines)
-            # Append the path line to the file as well
-            with open(log_path, "a", encoding="utf-8") as log_file:
-                log_file.write(f"Verbose log also saved: {log_path}\n")
-        except OSError as exc:
-            _vlog(verbose, f"  [WARN] could not write log file: {exc}", log_lines)
+        if any(is_projector_mesh(n) and n.casefold().startswith("proj") for n in present) or (
+            "ProjShad" in present
+        ):
+            _vlog(
+                verbose,
+                "  [OK] ProjShad mesh in .3ds (Quality 2 projector)",
+                log_lines,
+            )
+        else:
+            _vlog(
+                verbose,
+                "  [WARN] ProjShad mesh missing from .3ds "
+                "(Quality 2 bounding box → 0 — keep mesh, not just .dds)",
+                log_lines,
+            )
+        if any(is_projector_mesh(n) and n.casefold().startswith("lightf") for n in present):
+            _vlog(verbose, "  [OK] LightFProj mesh in .3ds", log_lines)
+        else:
+            _vlog(
+                verbose,
+                "  [INFO] LightFProj mesh not in .3ds (optional)",
+                log_lines,
+            )
+        if "MaxBox" in present or "Maxbox" in present:
+            _vlog(verbose, "  [WARN] MaxBox was written (should be blacklisted)", log_lines)
+        else:
+            _vlog(verbose, "  [OK] MaxBox not in .3ds (correct — guide only)", log_lines)
 
     reset_name_tables()
     return True

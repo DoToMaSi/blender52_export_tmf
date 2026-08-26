@@ -13,7 +13,13 @@ import bpy
 import bpy_extras
 
 from .addon_info import ADDON_NAME, ADDON_VERSION
-from .exporter import cleanup_mesh_objects, collect_mesh_data, do_export
+from .exporter import (
+    cleanup_mesh_objects,
+    collect_mesh_data,
+    do_export,
+    write_verbose_log,
+)
+from .format_3ds import reset_name_tables
 from .tmf_validation import validate_export
 
 
@@ -48,7 +54,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             "sBody origin at (0, 0, 0); applied scale/rotation on required meshes; "
             "no loose/disconnected vertices; absolute world extents Y in [-3, 3] mm and "
             "Z in [-0.3, 2.2] mm; vertex count within Poly Target. "
-            "ProjShad / LightFProj / MaxBox are never exported (engine uses .dds / guide). "
+            "ProjShad / LightFProj meshes are exported (Quality 2 / headlights); "
+            "MaxBox is never exported (scale guide). "
             "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
             "silently on invalid files"
         ),
@@ -58,10 +65,9 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_verbose: bpy.props.BoolProperty(
         name="Verbose Log",
         description=(
-            "Write a detailed System Console report and a sidecar .tmf-export.log next to "
-            "the .3ds: per-object transforms/bounds, exact 3DS material names + mapfiles, "
-            "face material refs, 2.79-style name comparison, and a fix checklist. "
-            "Open Window → Toggle System Console"
+            "Write a detailed .tmf-export.log next to the .3ds (full detail) and a short "
+            "System Console summary. Prefer the log file over the console — flooding the "
+            "Windows console can freeze Blender"
         ),
         default=True,
     )
@@ -81,6 +87,11 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         start_time = time.time()
         verbose = self.use_verbose
         log_lines = []
+        mesh_objects = []
+        empty_objects = []
+        result = {"CANCELLED"}
+        export_ok = False
+
         print(f"\n_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
         if verbose:
             header = (
@@ -92,8 +103,6 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             log_lines.append(f"_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
             log_lines.append(header)
 
-        mesh_objects = []
-        empty_objects = []
         try:
             mesh_objects, empty_objects, material_dict, texture_info = collect_mesh_data(
                 context,
@@ -104,6 +113,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
             if not mesh_objects and not empty_objects:
                 self.report({"ERROR"}, "Nothing to export (no allowlisted meshes found)")
+                if verbose:
+                    log_lines.append("Nothing to export (no allowlisted meshes found)")
                 return {"CANCELLED"}
 
             if self.use_strict:
@@ -149,28 +160,46 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     texture_info=texture_info,
                     log_lines=log_lines,
                 )
+                export_ok = True
             finally:
                 context.window.cursor_set("DEFAULT")
+
+            elapsed = time.time() - start_time
+            names = sorted(
+                {ob.name for ob, _ in mesh_objects} | {ob.name for ob in empty_objects}
+            )
+            print(f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds")
+            print(f"Objects ({len(names)}): {', '.join(names)}")
+            print(filepath)
+            if verbose:
+                log_lines.append(
+                    f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds"
+                )
+                log_lines.append(f"Objects ({len(names)}): {', '.join(names)}")
+                log_lines.append(filepath)
+            self.report(
+                {"INFO"},
+                f"Exported {len(names)} objects — {ADDON_NAME} v{ADDON_VERSION}",
+            )
+            result = {"FINISHED"}
         except Exception as exc:
             self.report({"ERROR"}, f"Export failed: {exc}")
+            if verbose:
+                log_lines.append(f"Export failed: {exc}")
             raise
         finally:
             cleanup_mesh_objects(mesh_objects)
+            reset_name_tables()
+            if verbose:
+                log_lines.append("_____END VERBOSE_____")
+                print("_____END VERBOSE_____")
+                log_path = write_verbose_log(filepath, log_lines)
+                if log_path and export_ok:
+                    self.report({"INFO"}, f"Verbose log: {log_path}")
+                elif log_path:
+                    print(f"Verbose log: {log_path}")
 
-        elapsed = time.time() - start_time
-        names = sorted({ob.name for ob, _ in mesh_objects} | {ob.name for ob in empty_objects})
-        print(f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds")
-        print(f"Objects ({len(names)}): {', '.join(names)}")
-        print(filepath)
-        if verbose:
-            print("_____END VERBOSE_____")
-            log_path = filepath.rsplit(".", 1)[0] + ".tmf-export.log"
-            self.report({"INFO"}, f"Verbose log: {log_path}")
-        self.report(
-            {"INFO"},
-            f"Exported {len(names)} objects — {ADDON_NAME} v{ADDON_VERSION}",
-        )
-        return {"FINISHED"}
+        return result
 
 
 def menu_func(self, context):
@@ -185,3 +214,4 @@ def register():
 def unregister():
     bpy.utils.unregister_class(Export_tmf)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func)
+    reset_name_tables()

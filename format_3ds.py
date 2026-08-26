@@ -94,6 +94,15 @@ def reset_name_tables():
     name_mapping.clear()
 
 
+def preview_sane_name(name):
+    """Non-mutating 12-char ASCII preview for logs (does not touch name tables)."""
+    if name is None:
+        return None
+    if isinstance(name, bytes):
+        name = name.decode("ASCII", "replace")
+    return name.encode("ASCII", "replace").decode("ASCII")[:12]
+
+
 def sane_name(name):
     if isinstance(name, bytes):
         name_key = name.decode("ASCII", "replace")
@@ -110,6 +119,10 @@ def sane_name(name):
     while new_name in name_unique:
         new_name = f"{new_name_clean}.{i:03d}"
         i += 1
+        # Hard cap — a runaway collision loop must never hang Blender.
+        if i > 10_000:
+            new_name = f"{new_name_clean[:8]}.{i:03d}"[:12]
+            break
 
     name_unique.append(new_name)
     name_mapping[name_key] = new_name = new_name.encode("ASCII", "replace")

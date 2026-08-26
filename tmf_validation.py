@@ -23,7 +23,15 @@ REQUIRED_MESHES = (
     "sRRWheel",
 )
 
-# Optional light helpers (tiny meshes or Empties). Exported when present.
+# Projector meshes written into the .3ds (geometry defines Quality 2 / headlight
+# projection). ProjShad.dds alone in the zip is not enough — missing mesh →
+# "Quality 2's bounding box (0 ...".
+PROJECTOR_MESHES = (
+    "ProjShad",
+    "LightFProj",
+)
+
+# Optional light helpers (tiny meshes or Empties). Exported as KFDATA-only.
 OPTIONAL_MESHES = (
     # Tutorial / manual naming
     "LightFL1",
@@ -45,20 +53,32 @@ OPTIONAL_MESHES = (
     "RRLight",
 )
 
-# Never written to the .3ds (same as working 2.1.2). Engine uses .dds only for
-# ProjShad / LightFProj; MaxBox is an in-scene scale guide.
-# Matching is case-insensitive and ignores Blender duplicate suffixes (.001).
+# Only MaxBox is never written (in-scene scale guide).
 EXPORT_HELPER_BLACKLIST = frozenset({
-    "projshad",
-    "lightfproj",
     "maxbox",
 })
+
+# ProjShad must have a usable ground footprint or Quality 2 collapses to 0.
+MIN_PROJSHAD_FOOTPRINT = 1.0
+MIN_LIGHTFPROJ_EXTENT = 0.5
 
 
 def is_export_blacklisted(name):
     """True if this object must never be written to the .3ds (any casing / .001)."""
     base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
     return base.casefold() in EXPORT_HELPER_BLACKLIST
+
+
+def is_projector_mesh(name):
+    """True for ProjShad / LightFProj (any casing / .001)."""
+    base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
+    folded = base.casefold()
+    return folded == "projshad" or folded.startswith("lightfproj")
+
+
+def mesh_export_names():
+    """Object names that receive a full mesh chunk in the .3ds."""
+    return frozenset(REQUIRED_MESHES) | frozenset(PROJECTOR_MESHES)
 
 # Absolute world-space limits in millimeters (TMF Maxbox / engine space).
 # These are real engine limits (~6×3×2.5 mm box) — NOT meters×1000.
@@ -242,9 +262,29 @@ def validate_export(context, mesh_objects, poly_target):
         if required not in mesh_names:
             result.add_error(f"Missing required mesh object: {required}")
 
+    # Quality 2 is the fake-shadow projector — needs ProjShad mesh in the .3ds.
+    has_projshad = any(
+        (
+            n.rsplit(".", 1)[0]
+            if "." in n and n.rsplit(".", 1)[1].isdigit()
+            else n
+        ).casefold()
+        == "projshad"
+        for n in mesh_names
+    )
+    if not has_projshad:
+        result.add_error(
+            "Missing ProjShad mesh (required for Quality 2 shadow projection — "
+            "ProjShad.dds in the zip is not enough)"
+        )
+
+    checked = set()
     for ob, mesh in mesh_objects:
-        if ob.name not in REQUIRED_MESHES:
+        if ob.name not in REQUIRED_MESHES and not is_projector_mesh(ob.name):
             continue
+        if ob.name in checked:
+            continue
+        checked.add(ob.name)
 
         verts = _safe_mesh_vertices(mesh)
         if verts is None or len(verts) == 0:
@@ -263,17 +303,42 @@ def validate_export(context, mesh_objects, poly_target):
                 f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
             )
 
-        loose = count_loose_vertices(mesh)
-        if loose > 0:
-            result.add_error(
-                f"{ob.name}: has {loose} loose/disconnected vertices not used by any face"
-            )
+        if not is_projector_mesh(ob.name):
+            loose = count_loose_vertices(mesh)
+            if loose > 0:
+                result.add_error(
+                    f"{ob.name}: has {loose} loose/disconnected vertices "
+                    f"not used by any face"
+                )
 
         try:
             for msg in check_absolute_extents_mm(scene, mesh, ob):
                 result.add_error(f"{ob.name}: {msg}")
         except Exception as exc:
             result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
+
+        # Projector footprint — zero size → Quality 2 bounding box (0.
+        # Thin Z is OK (ground plane); X/Y must cover the car shadow.
+        if is_projector_mesh(ob.name):
+            dims = ob.dimensions
+            footprint = max(float(dims.x), float(dims.y))
+            base = (
+                ob.name.rsplit(".", 1)[0]
+                if "." in ob.name and ob.name.rsplit(".", 1)[1].isdigit()
+                else ob.name
+            )
+            if base.casefold() == "projshad":
+                if footprint < MIN_PROJSHAD_FOOTPRINT:
+                    result.add_error(
+                        f"{ob.name}: footprint {footprint:.4f} too small "
+                        f"(need ≥ {MIN_PROJSHAD_FOOTPRINT} on X/Y; "
+                        f"Quality 2 bbox → 0)"
+                    )
+            elif footprint < MIN_LIGHTFPROJ_EXTENT:
+                result.add_error(
+                    f"{ob.name}: extent {footprint:.4f} too small "
+                    f"(need ≥ {MIN_LIGHTFPROJ_EXTENT})"
+                )
 
     # Engine anchors suspension / tires from sBody origin.
     for ob, _mesh in mesh_objects:
@@ -304,8 +369,9 @@ def validate_export(context, mesh_objects, poly_target):
     if not mesh_objects:
         result.add_error("No objects selected for export")
 
+    known = REQUIRED_MESHES + PROJECTOR_MESHES + OPTIONAL_MESHES
     for name in sorted(mesh_names):
-        for required in REQUIRED_MESHES + OPTIONAL_MESHES:
+        for required in known:
             if required not in mesh_names and name.lower() == required.lower():
                 result.add_error(
                     f"Object '{name}' looks like '{required}' but spelling/case differs"

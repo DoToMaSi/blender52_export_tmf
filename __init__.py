@@ -11,12 +11,29 @@ _needs_reload = "bpy" in locals()
 
 import bpy
 
-from . import export_operator
+from . import (
+    addon_info,
+    export_operator,
+    exporter,
+    format_3ds,
+    material_utils,
+    tmf_validation,
+)
+
+_MODULES = (
+    format_3ds,
+    material_utils,
+    tmf_validation,
+    addon_info,
+    exporter,
+    export_operator,
+)
 
 if _needs_reload:
     import importlib
 
-    export_operator = importlib.reload(export_operator)
+    for mod in _MODULES:
+        importlib.reload(mod)
 
 
 def register():
@@ -25,3 +42,8 @@ def register():
 
 def unregister():
     export_operator.unregister()
+    # Drop mutable 3DS name tables so a reinstall / F8 reload cannot leak state.
+    try:
+        format_3ds.reset_name_tables()
+    except Exception:
+        pass
