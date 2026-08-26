@@ -62,6 +62,7 @@ from .format_3ds import (
     _3ds_ushort,
     preview_sane_name,
     reset_name_tables,
+    sane_mapfile,
     sane_name,
     uv_key,
 )
@@ -202,7 +203,7 @@ def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
         "blender_image": image_name,
         "expected_map": expected,
         "3ds_mat_name": preview_sane_name(mat_name) if mat_name else None,
-        "3ds_mapfile": preview_sane_name(mapfile) if mapfile else None,
+        "3ds_mapfile": sane_mapfile(mapfile) if mapfile else None,
         "face_mat_names": [preview_sane_name(n) for n in face_names],
         "has_uv": has_uv,
         "warns": warns,
@@ -402,7 +403,7 @@ def make_percent_subchunk(chunk_id, percentval):
 def make_material_texture_chunk(chunk_id, texture_filename):
     mat_sub = make_percent_subchunk(chunk_id, 1)
     mat_sub_file = _3ds_chunk(MATMAPFILE)
-    mat_sub_file.add_variable("mapfile", _3ds_string(sane_name(texture_filename)))
+    mat_sub_file.add_variable("mapfile", _3ds_string(sane_mapfile(texture_filename)))
     mat_sub.add_subchunk(mat_sub_file)
     return mat_sub
 
@@ -1027,7 +1028,7 @@ def do_export(
                 texture_filename.rsplit(".", 1)[0] if texture_filename else "None"
             )
         sane_mat = preview_sane_name(mat_name)
-        sane_map = preview_sane_name(texture_filename) if texture_filename else None
+        sane_map = sane_mapfile(texture_filename) if texture_filename else None
         _vlog(
             verbose,
             f"  [MAT] name={sane_mat}  mapfile={sane_map or '<none>'}  "

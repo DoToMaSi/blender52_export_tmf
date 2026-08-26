@@ -103,6 +103,22 @@ def preview_sane_name(name):
     return name.encode("ASCII", "replace").decode("ASCII")[:12]
 
 
+def sane_mapfile(filename):
+    """
+    ASCII-sanitize a texture map filename for MATMAPFILE.
+
+    Must NOT use the 12-char object-name table — LightFProj.dds is 14 chars and
+    was being truncated to LightFProj.d.
+    """
+    if filename is None:
+        return None
+    if isinstance(filename, bytes):
+        filename = filename.decode("ASCII", "replace")
+    # Keep basename only; strip path separators Blender may leave.
+    filename = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    return filename.encode("ASCII", "replace").decode("ASCII")
+
+
 def sane_name(name):
     if isinstance(name, bytes):
         name_key = name.decode("ASCII", "replace")
