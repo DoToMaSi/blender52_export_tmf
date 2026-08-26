@@ -477,9 +477,32 @@ def _register_materials(material_dict, ob, mesh, texture_filename):
 
 
 def cleanup_mesh_objects(mesh_objects):
-    for _ob, mesh in mesh_objects:
-        if mesh.name in bpy.data.meshes:
+    for _ob, mesh in list(mesh_objects):
+        if mesh is None:
+            continue
+        try:
             bpy.data.meshes.remove(mesh)
+        except ReferenceError:
+            pass
+
+
+def _evaluated_mesh_copy(obj, depsgraph):
+    """Create an independent Mesh datablock from an evaluated object."""
+    obj_eval = obj.evaluated_get(depsgraph)
+    try:
+        return bpy.data.meshes.new_from_object(
+            obj_eval,
+            preserve_all_data_layers=True,
+            depsgraph=depsgraph,
+        )
+    except (RuntimeError, TypeError):
+        pass
+
+    # Fallback without preserving all layers (still includes UVs needed for 3DS).
+    try:
+        return bpy.data.meshes.new_from_object(obj_eval)
+    except (RuntimeError, TypeError):
+        return None
 
 
 def collect_mesh_data(context, use_selection):
@@ -505,19 +528,13 @@ def collect_mesh_data(context, use_selection):
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
                 continue
 
-            obj_eval = ob_derived.evaluated_get(depsgraph)
-            try:
-                data = bpy.data.meshes.new_from_object(
-                    obj_eval,
-                    depsgraph=depsgraph,
-                    preserve_all_data_layers=True,
-                )
-            except RuntimeError:
-                data = None
-
-            if not data:
+            data = _evaluated_mesh_copy(ob_derived, depsgraph)
+            if data is None or len(data.vertices) == 0:
+                if data is not None:
+                    bpy.data.meshes.remove(data)
                 continue
 
+            # Bake object world matrix into vertex positions (4KEX / original behavior).
             data.transform(matrix_world)
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
@@ -596,6 +613,5 @@ def do_export(context, filename, mesh_objects, empty_objects, material_dict):
     with open(filename, "wb") as file:
         primary.write(file)
 
-    cleanup_mesh_objects(mesh_objects)
     reset_name_tables()
     return True

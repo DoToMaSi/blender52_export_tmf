@@ -63,7 +63,10 @@ class ValidationResult:
 
 def bu_to_mm(scene, value):
     """Convert a Blender-unit distance to millimeters."""
-    return value * scene.unit_settings.scale_length * 1000.0
+    scale = scene.unit_settings.scale_length
+    if scale <= 0.0:
+        scale = 1.0
+    return value * scale * 1000.0
 
 
 def gather_export_objects(context, use_selection):
@@ -86,42 +89,41 @@ def _rotation_is_identity(ob, tolerance=TRANSFORM_TOLERANCE):
     )
 
 
-def _mesh_world_bounds_mm(context, obj):
-    depsgraph = context.evaluated_depsgraph_get()
-    obj_eval = obj.evaluated_get(depsgraph)
-    mesh = obj_eval.to_mesh(preserve_all_data_layers=True)
-    try:
-        world_matrix = obj_eval.matrix_world
-        min_co = [float("inf")] * 3
-        max_co = [float("-inf")] * 3
-        for vert in mesh.vertices:
-            co = world_matrix @ vert.co
-            for i in range(3):
-                min_co[i] = min(min_co[i], co[i])
-                max_co[i] = max(max_co[i], co[i])
-        scene = context.scene
-        return {
-            "x": bu_to_mm(scene, max_co[0] - min_co[0]),
-            "y": bu_to_mm(scene, max_co[1] - min_co[1]),
-            "z": bu_to_mm(scene, max_co[2] - min_co[2]),
-        }
-    finally:
-        obj_eval.to_mesh_clear()
+def mesh_bounds_mm(scene, mesh):
+    """Axis-aligned size of a mesh already transformed into world space."""
+    if mesh is None or len(mesh.vertices) == 0:
+        return None
+
+    min_co = [float("inf")] * 3
+    max_co = [float("-inf")] * 3
+    for vert in mesh.vertices:
+        co = vert.co
+        for i in range(3):
+            min_co[i] = min(min_co[i], co[i])
+            max_co[i] = max(max_co[i], co[i])
+
+    return {
+        "x": bu_to_mm(scene, max_co[0] - min_co[0]),
+        "y": bu_to_mm(scene, max_co[1] - min_co[1]),
+        "z": bu_to_mm(scene, max_co[2] - min_co[2]),
+    }
 
 
-def count_export_vertices(context, mesh_objects):
+def count_export_vertices(mesh_objects):
     """Count vertices the same way the exporter will after triangulation/UV split."""
     from .exporter import count_mesh_export_vertices
 
     total = 0
     for _ob, mesh in mesh_objects:
+        if mesh is None:
+            continue
         total += count_mesh_export_vertices(mesh)
     return total
 
 
 def validate_export(context, mesh_objects, empty_objects, poly_target):
     result = ValidationResult()
-    export_objects = mesh_objects + [(ob, None) for ob in empty_objects]
+    scene = context.scene
 
     mesh_names = {ob.name for ob, _ in mesh_objects}
     empty_names = {ob.name for ob in empty_objects}
@@ -134,13 +136,17 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
     for required in REQUIRED_EMPTIES:
         if required not in empty_names:
             result.add_error(f"Missing required empty helper: {required}")
-        elif required in empty_names:
+        else:
             ob = next(ob for ob in empty_objects if ob.name == required)
             if ob.type != "EMPTY":
                 result.add_error(f"{required}: must be an Empty object, found {ob.type}")
 
-    for ob, _mesh in mesh_objects:
+    for ob, mesh in mesh_objects:
         if ob.name not in REQUIRED_MESHES:
+            continue
+
+        if mesh is None or len(mesh.vertices) == 0:
+            result.add_error(f"{ob.name}: has no evaluable mesh geometry")
             continue
 
         if not _scale_is_identity(ob):
@@ -155,7 +161,11 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
             )
 
-        bounds = _mesh_world_bounds_mm(context, ob)
+        bounds = mesh_bounds_mm(scene, mesh)
+        if bounds is None:
+            result.add_error(f"{ob.name}: could not compute bounding box")
+            continue
+
         for axis, limit in MAX_BOX_MM.items():
             if bounds[axis] > limit + TRANSFORM_TOLERANCE:
                 result.add_error(
@@ -164,12 +174,12 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 )
 
         if expected_texture_filename(ob.name) is not None:
-            ok, message = texture_reference_matches(ob)
+            ok, message = texture_reference_matches(ob, mesh)
             if not ok:
                 result.add_error(message)
 
     vertex_limit = VERTEX_LIMITS.get(poly_target, VERTEX_LIMITS["HIGH"])
-    vertex_count = count_export_vertices(context, mesh_objects)
+    vertex_count = count_export_vertices(mesh_objects)
     if vertex_count > vertex_limit:
         result.add_error(
             f"Vertex count {vertex_count} exceeds {poly_target} poly limit ({vertex_limit})"
@@ -178,7 +188,6 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
     if not mesh_objects and not empty_objects:
         result.add_error("No objects selected for export")
 
-    # Hint for near-miss names in the export set
     for name in sorted(all_names):
         for required in REQUIRED_MESHES + REQUIRED_EMPTIES:
             if required not in all_names and name.lower() == required.lower():

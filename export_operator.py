@@ -50,31 +50,43 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         start_time = time.time()
         print("\n_____START_____")
 
-        mesh_objects, empty_objects, material_dict = collect_mesh_data(
-            context,
-            self.use_selection,
-        )
-
-        validation = validate_export(
-            context,
-            mesh_objects,
-            empty_objects,
-            self.poly_target,
-        )
-        if not validation.ok:
-            for error in validation.errors:
-                self.report({"ERROR"}, error)
-            cleanup_mesh_objects(mesh_objects)
-            return {"CANCELLED"}
-
-        context.window.cursor_set("WAIT")
+        mesh_objects = []
         try:
-            do_export(context, filepath, mesh_objects, empty_objects, material_dict)
+            mesh_objects, empty_objects, material_dict = collect_mesh_data(
+                context,
+                self.use_selection,
+            )
+
+            validation = validate_export(
+                context,
+                mesh_objects,
+                empty_objects,
+                self.poly_target,
+            )
+            if not validation.ok:
+                for error in validation.errors[:8]:
+                    self.report({"ERROR"}, error)
+                if len(validation.errors) > 8:
+                    self.report(
+                        {"ERROR"},
+                        f"...and {len(validation.errors) - 8} more validation errors",
+                    )
+                return {"CANCELLED"}
+
+            context.window.cursor_set("WAIT")
+            try:
+                do_export(context, filepath, mesh_objects, empty_objects, material_dict)
+            finally:
+                context.window.cursor_set("DEFAULT")
+        except Exception as exc:
+            self.report({"ERROR"}, f"Export failed: {exc}")
+            raise
         finally:
-            context.window.cursor_set("DEFAULT")
+            cleanup_mesh_objects(mesh_objects)
 
         print(f"finished export in {time.time() - start_time:.3f} seconds")
         print(filepath)
+        self.report({"INFO"}, f"Exported {filepath}")
         return {"FINISHED"}
 
 

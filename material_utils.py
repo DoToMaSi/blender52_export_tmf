@@ -86,32 +86,49 @@ def get_mesh_uv_image(mesh):
     return None
 
 
-def get_object_texture_reference(obj, mesh):
+def _iter_object_materials(obj, mesh=None):
+    """Yield materials from mesh slots, then object data slots."""
+    seen = set()
+    sources = []
+    if mesh is not None:
+        sources.append(mesh.materials)
+    if obj.type == "MESH" and obj.data is not None:
+        sources.append(obj.data.materials)
+    for material_slots in sources:
+        for mat in material_slots:
+            if mat is None:
+                continue
+            mat_id = mat.as_pointer()
+            if mat_id in seen:
+                continue
+            seen.add(mat_id)
+            yield mat
+
+
+def get_object_texture_reference(obj, mesh=None):
     """Resolve the texture image and expected TMF filename for an object."""
     expected = expected_texture_filename(obj.name)
-    image = get_mesh_uv_image(mesh)
+    image = get_mesh_uv_image(mesh) if mesh is not None else None
 
-    if image is None and obj.data.materials:
-        for mat in obj.data.materials:
-            if mat is not None:
-                image = get_material_image(mat)
-                if image is not None:
-                    break
+    if image is None:
+        for mat in _iter_object_materials(obj, mesh):
+            image = get_material_image(mat)
+            if image is not None:
+                break
 
     return expected, image
 
 
-def texture_reference_matches(obj):
+def texture_reference_matches(obj, mesh=None):
     """Check whether the object references the correct TMF texture filename."""
     expected = expected_texture_filename(obj.name)
     if expected is None:
         return True, None
 
-    mesh = obj.data
-    if mesh is None or obj.type != "MESH":
+    if obj.type != "MESH" and mesh is None:
         return True, None
 
-    _, image = get_object_texture_reference(obj, mesh)
+    _, image = get_object_texture_reference(obj, mesh if mesh is not None else obj.data)
     if image is None:
         return False, f"{obj.name}: missing texture reference, expected {expected}"
 
