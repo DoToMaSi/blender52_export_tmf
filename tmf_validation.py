@@ -21,8 +21,6 @@ REQUIRED_MESHES = (
     "sRLWheel",
     "dRRWheel",
     "sRRWheel",
-    "ProjShad",
-    "LightFProj",
 )
 
 # Optional light helpers (exported when present; not required for Strict validation).
@@ -37,8 +35,10 @@ OPTIONAL_LIGHT_EMPTIES = (
     "LightRR",
 )
 
-# Reference geometry never exported (scale guide only).
+# Not exported: engine uses .dds only for shadow/light projection; Maxbox is a scale guide.
 EXPORT_HELPER_BLACKLIST = frozenset({
+    "ProjShad",
+    "LightFProj",
     "Maxbox",
 })
 
