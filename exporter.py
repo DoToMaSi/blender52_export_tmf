@@ -792,6 +792,47 @@ def cleanup_mesh_objects(mesh_objects):
             pass
 
 
+def _mesh_aabb_size(mesh):
+    """Return (sx, sy, sz) of mesh vert.co AABB, or None."""
+    try:
+        verts = mesh.vertices
+    except (AttributeError, ReferenceError):
+        return None
+    if not verts:
+        return None
+    xs = [v.co.x for v in verts]
+    ys = [v.co.y for v in verts]
+    zs = [v.co.z for v in verts]
+    return (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+
+
+def _is_projshad_name(name):
+    base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
+    return base.casefold() == "projshad"
+
+
+def apply_projshad_tm_orientation(mesh):
+    """
+    TM expects ProjShad with Y-up pivot (guide: local Y like reference Z).
+
+    Blender ground planes are Z-up (thin on Z). Empirically, +90° about X fixes
+    the in-game fake shadow. If the mesh is already thin on Y (user pre-rotated),
+    leave it alone.
+    """
+    size = _mesh_aabb_size(mesh)
+    if size is None:
+        return False
+    sx, sy, sz = size
+    # Already Y-up / wall-thin-on-Y layout — do not double-rotate.
+    if sy <= sx * 0.15 and sy <= sz * 0.15:
+        return False
+    # Blender ground: thin on Z relative to footprint.
+    if sz > sx * 0.15 and sz > sy * 0.15:
+        return False
+    mesh.transform(mathutils.Matrix.Rotation(math.radians(90.0), 4, "X"))
+    return True
+
+
 def _evaluated_mesh_copy(obj, depsgraph):
     """Create an independent Mesh datablock from an evaluated object."""
     obj_eval = obj.evaluated_get(depsgraph)
@@ -812,11 +853,12 @@ def _evaluated_mesh_copy(obj, depsgraph):
 
 
 def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
-    """Gather body/wheel/projector meshes and optional light helpers for export.
+    """Gather body/wheel/projector/light meshes and Empty light helpers for export.
 
     MaxBox is always stripped (scale guide). ProjShad / LightFProj are exported
-    as real meshes — their size defines Quality 2 / headlight projection.
-    Light helpers are KFDATA-only (like 2.1.2 Empties), even if they are planes.
+    as real meshes. Light helper *meshes* get a full OBJECT chunk like 2.1.2
+    (flare origin comes from that transform). Only Empty light helpers are
+    KFDATA-only — stripping mesh lights to KF-only parked flares at (0,0,0).
     """
     scene = context.scene
     visible = [ob for ob in scene.objects if ob.visible_get()]
@@ -851,27 +893,31 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             )
             continue
 
-        # Light markers: KFDATA-only (never write zero-area mesh chunks).
-        if is_optional_light_helper(ob.name):
-            empty_objects.append(ob)
-            _vlog(
-                verbose,
-                f"  [COLLECTED] {ob.name}  type={ob.type}  "
-                f"loc={_fmt_vec(ob.location)}  "
-                f"(KFDATA-only light helper — no mesh chunk)",
-                log_lines,
-            )
-            continue
-
+        # 2.1.2: only Empties are KFDATA-only. Mesh light helpers keep an OBJECT chunk
+        # so the flare uses the mesh transform (not world origin).
         if ob.type == "EMPTY":
-            _vlog(
-                verbose,
-                f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)",
-                log_lines,
-            )
+            if is_optional_light_helper(ob.name):
+                empty_objects.append(ob)
+                _vlog(
+                    verbose,
+                    f"  [COLLECTED] {ob.name}  type=EMPTY  "
+                    f"loc={_fmt_vec(ob.location)}  "
+                    f"(KFDATA-only light Empty)",
+                    log_lines,
+                )
+            else:
+                _vlog(
+                    verbose,
+                    f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)",
+                    log_lines,
+                )
             continue
 
-        if ob.name not in MESH_CHUNK_NAMES and not is_projector_mesh(ob.name):
+        if (
+            ob.name not in MESH_CHUNK_NAMES
+            and not is_projector_mesh(ob.name)
+            and not is_optional_light_helper(ob.name)
+        ):
             _vlog(
                 verbose,
                 f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}",
@@ -896,15 +942,6 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                     log_lines,
                 )
                 continue
-            if is_optional_light_helper(ob_derived.name):
-                empty_objects.append(ob_derived)
-                _vlog(
-                    verbose,
-                    f"  [COLLECTED] {ob_derived.name}  type={ob_derived.type}  "
-                    f"(KFDATA-only light helper — derived)",
-                    log_lines,
-                )
-                continue
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
                 _vlog(
                     verbose,
@@ -916,10 +953,11 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             if (
                 ob_derived.name not in MESH_CHUNK_NAMES
                 and not is_projector_mesh(ob_derived.name)
+                and not is_optional_light_helper(ob_derived.name)
             ):
                 _vlog(
                     verbose,
-                    f"  [SKIP] {ob_derived.name}  reason=not a body/wheel/projector",
+                    f"  [SKIP] {ob_derived.name}  reason=not a body/wheel/projector/light",
                     log_lines,
                 )
                 continue
@@ -940,6 +978,14 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             # location (rotation pivot). Local-only verts made Quality 2 use a
             # hub-centered wheel AABB (~±0.33) that fails the -0.2 floor.
             data.transform(_matrix_world)
+            if _is_projshad_name(ob_derived.name) and apply_projshad_tm_orientation(data):
+                _vlog(
+                    verbose,
+                    f"  [ORIENT] {ob_derived.name}  +90° X "
+                    f"(Blender Z-up plane → TM Y-up ProjShad)",
+                    log_lines,
+                    to_console=True,
+                )
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 
@@ -955,11 +1001,17 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                 status="COLLECTED",
                 log_lines=log_lines,
             )
+            if is_optional_light_helper(ob_derived.name):
+                _vlog(
+                    verbose,
+                    f"         (light helper mesh — OBJECT chunk for flare origin)",
+                    log_lines,
+                )
 
     _vlog(
         verbose,
         f"Collected {len(mesh_objects)} mesh(es), "
-        f"{len(empty_objects)} KF-only light helper(s)",
+        f"{len(empty_objects)} KF-only Empty light(s)",
         log_lines,
     )
     return mesh_objects, empty_objects, material_dict, texture_info
@@ -1078,7 +1130,7 @@ def do_export(
             f"  [WRITTEN] {ob.name}  type={ob.type}  "
             f"kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(ob.location)}  "
             f"export_translation={_fmt_vec(ob.location)}  "
-            f"(KFDATA-only light helper — no mesh chunk)",
+            f"(KFDATA-only light Empty)",
             log_lines,
         )
 

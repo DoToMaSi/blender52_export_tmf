@@ -155,15 +155,6 @@ def _scale_is_identity(ob, tolerance=TRANSFORM_TOLERANCE):
     return all(abs(s - 1.0) < tolerance for s in ob.scale)
 
 
-def _rotation_is_identity(ob, tolerance=TRANSFORM_TOLERANCE):
-    euler = ob.rotation_euler
-    return (
-        abs(euler.x) < tolerance
-        and abs(euler.y) < tolerance
-        and abs(euler.z) < tolerance
-    )
-
-
 def _safe_mesh_vertices(mesh):
     """Return mesh.vertices, or None if the datablock is missing/invalid."""
     if mesh is None:
@@ -321,11 +312,8 @@ def validate_export(context, mesh_objects, poly_target):
                 f"(Apply Scale before export)"
             )
 
-        if not _rotation_is_identity(ob):
-            rot = tuple(round(r, 4) for r in ob.rotation_euler)
-            result.add_error(
-                f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
-            )
+        # Rotation may stay unapplied: flare helpers need local Y aimed at the car
+        # center, and matrix_world bake already includes object rotation.
 
         if not is_projector_mesh(ob.name):
             loose = count_loose_vertices(mesh)
