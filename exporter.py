@@ -70,6 +70,8 @@ from .material_utils import (
     get_object_texture_reference,
 )
 from .tmf_validation import (
+    ABS_Y_MM,
+    ABS_Z_MM,
     OPTIONAL_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
@@ -79,24 +81,67 @@ from .tmf_validation import (
 ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES) | frozenset(OPTIONAL_MESHES)
 
 
-def forced_material_name(object_name, material=None):
-    """Canonical 3DS material name for TMF projector / body maps."""
+def forced_material_name(object_name):
+    """Override MATERIAL name only for projector meshes (when exported)."""
     if object_name == "ProjShad":
         return "ProjShad"
     if object_name.startswith("LightFProj"):
         return "LightFProj"
+    return None
+
+
+def export_material_name(object_name, material=None, texture_filename=None):
+    """Exact MATERIAL / OBJECT_MATERIAL name written to the .3ds (must match)."""
+    force = forced_material_name(object_name)
+    if force:
+        return force
     if material is not None:
         return material.name
-    expected = expected_texture_filename(object_name)
-    if expected:
-        return expected.rsplit(".", 1)[0]
+    if texture_filename:
+        return texture_filename.rsplit(".", 1)[0]
     return None
+
+
+def _display_name(value):
+    """Pretty-print sane_name bytes/str for console logs."""
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("ASCII", "replace")
+    return str(value)
+
+
+def unparented_kf_pivot(obj, location):
+    """
+    KFDATA pivot for root objects.
+
+    Body/wheel meshes store world location in OBJECT_TRANS_MATRIX. TrackMania
+    applies (POS_TRACK - PIVOT) on top of that — pivot must equal POS_TRACK so
+    location is applied once.
+
+    Light helpers (Empties *or* tiny Blender planes) are written as KFDATA-only
+    dummy nodes like 2.1.2 Empties: no mesh chunk, pivot (0,0,0), POS places them.
+    Exporting zero-area light planes as real meshes caused
+    "Quality 2's bounding box (0 ...".
+    """
+    if obj.type == "EMPTY" or obj.name in OPTIONAL_MESHES:
+        return (0.0, 0.0, 0.0)
+    return (float(location[0]), float(location[1]), float(location[2]))
+
+
+def effective_export_translation(location, pivot):
+    """World translation TM sees: matrix_T + (POS_TRACK - PIVOT) for root objects."""
+    return (
+        location[0] + (location[0] - pivot[0]),
+        location[1] + (location[1] - pivot[1]),
+        location[2] + (location[2] - pivot[2]),
+    )
 
 
 def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
     """
     Compute the exact MATERIAL / OBJECT_MATERIAL / MAPFILE strings written to .3ds,
-    plus a 2.79-style name for comparison and diagnostic WARN flags.
+    matching make_faces_chunk / _register_materials / make_material_chunk.
     """
     slots = _material_slot_names(ob, mesh)
     primary_mat = None
@@ -106,15 +151,8 @@ def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
                 primary_mat = mat
                 break
 
-    force = forced_material_name(ob.name, primary_mat)
-    if force:
-        mat_name = force
-    elif primary_mat is not None:
-        mat_name = primary_mat.name
-    elif texture_filename:
-        mat_name = texture_filename.rsplit(".", 1)[0]
-    else:
-        mat_name = None
+    force = forced_material_name(ob.name)
+    mat_name = export_material_name(ob.name, primary_mat, texture_filename)
 
     image_name = None
     if image is not None:
@@ -123,19 +161,12 @@ def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
     expected = expected_texture_filename(ob.name)
     mapfile = texture_filename
 
-    # 2.79 face-UV convention: material chunk name = mat.name + image.name
-    legacy_279 = None
-    if primary_mat is not None or image_name:
-        legacy_279 = (primary_mat.name if primary_mat else "None")
-        if image_name:
-            legacy_279 += image_name
-
     face_names = []
     if mesh is not None:
         for mat in mesh.materials:
             if mat is None:
                 continue
-            face_names.append(forced_material_name(ob.name, mat) or mat.name)
+            face_names.append(force or mat.name)
     if not face_names and mat_name:
         face_names = [mat_name]
 
@@ -155,20 +186,14 @@ def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
         warns.append("no UV layer")
     if not slots and ob.name in REQUIRED_MESHES:
         warns.append("no material slots (using synthetic/fallback mat name)")
-    if legacy_279 and mat_name and sane_name(legacy_279) != sane_name(mat_name):
-        warns.append(
-            f"differs from 2.79-style name '{sane_name(legacy_279)}' "
-            f"(we write '{sane_name(mat_name)}')"
-        )
 
     return {
         "blender_slots": slots,
         "blender_image": image_name,
         "expected_map": expected,
-        "3ds_mat_name": sane_name(mat_name) if mat_name else None,
-        "3ds_mapfile": sane_name(mapfile) if mapfile else None,
-        "face_mat_names": [sane_name(n) for n in face_names],
-        "legacy_279_name": sane_name(legacy_279) if legacy_279 else None,
+        "3ds_mat_name": _display_name(sane_name(mat_name)) if mat_name else None,
+        "3ds_mapfile": _display_name(sane_name(mapfile)) if mapfile else None,
+        "face_mat_names": [_display_name(sane_name(n)) for n in face_names],
         "has_uv": has_uv,
         "warns": warns,
     }
@@ -232,6 +257,8 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
     n_tris = len(mesh.loop_triangles) if mesh is not None else 0
     bounds = _mesh_world_bounds(ob, mesh) if mesh is not None else None
     bind = resolve_3ds_material_binding(ob, mesh, texture_filename, image)
+    pivot = unparented_kf_pivot(ob, loc) if ob.parent is None else None
+    eff_t = effective_export_translation(loc, pivot) if pivot is not None else None
 
     def out(msg):
         _vlog(True, msg, log_lines)
@@ -242,9 +269,43 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
     out(f"         dimensions={_fmt_vec(dims)}  verts={n_verts}  tris={n_tris}")
     if bounds is not None:
         out(
-            f"         world_bounds min={_fmt_vec(bounds['min'])} "
+            f"         blender_world min={_fmt_vec(bounds['min'])} "
             f"max={_fmt_vec(bounds['max'])} size={_fmt_vec(bounds['size'])}"
         )
+    if pivot is not None and eff_t is not None:
+        out(
+            f"         kf_pivot={_fmt_vec(pivot)}  pos_track={_fmt_vec(loc)}  "
+            f"export_translation={_fmt_vec(eff_t)}"
+        )
+        if mesh is not None and abs(eff_t[0] - loc[0]) + abs(eff_t[1] - loc[1]) + abs(
+            eff_t[2] - loc[2]
+        ) > 1e-6:
+            out(
+                "         [WARN] export_translation != object location "
+                "(POS-PIVOT not cancelled — double transform risk)"
+            )
+        if mesh is not None:
+            # Approximate TM AABB: local verts shifted by export_translation
+            # (identity rotation — matches this car's applied transforms).
+            xs, ys, zs = [], [], []
+            for vert in mesh.vertices:
+                xs.append(vert.co[0] + eff_t[0])
+                ys.append(vert.co[1] + eff_t[1])
+                zs.append(vert.co[2] + eff_t[2])
+            if xs:
+                emin = (min(xs), min(ys), min(zs))
+                emax = (max(xs), max(ys), max(zs))
+                out(
+                    f"         export_aabb min={_fmt_vec(emin)} max={_fmt_vec(emax)}"
+                )
+                y_lo, y_hi = ABS_Y_MM
+                z_lo, z_hi = ABS_Z_MM
+                if emin[1] < y_lo or emax[1] > y_hi or emin[2] < z_lo or emax[2] > z_hi:
+                    out(
+                        f"         [WARN] export_aabb outside TMF max box "
+                        f"Y{list(ABS_Y_MM)} Z{list(ABS_Z_MM)} "
+                        f"(Quality 2 bounding-box failure likely)"
+                    )
     out(f"         blender_slots={bind['blender_slots'] or '<none>'}")
     out(f"         has_uv={bind['has_uv']}")
     out(
@@ -254,10 +315,8 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
     out(f"         faces_reference_materials={bind['face_mat_names'] or '<none>'}")
     out(
         f"         expected_map={bind['expected_map'] or '<none>'}  "
-        f"blender_image={bind['blender_image'] or '<none>'}  "
-        f"legacy_279_name={bind['legacy_279_name'] or '<n/a>'}"
+        f"blender_image={bind['blender_image'] or '<none>'}"
     )
-    out(f"         kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(loc)}")
     for warn in bind["warns"]:
         out(f"         [WARN] {warn}")
 
@@ -631,9 +690,9 @@ def make_kf_obj_node(obj, name_to_id, name_to_scale, name_to_pos, name_to_rot):
     kf_obj_node.add_subchunk(obj_node_header_chunk)
 
     if (parent is None) or (parent.name not in name_to_id):
-        # Original 4KEX (fdae86a): unparented pivot is always (0,0,0).
-        # World placement comes from POS_TRACK (+ mesh matrix for meshes).
-        pivot_pos = (0.0, 0.0, 0.0)
+        # Meshes: pivot == POS cancels track so OBJECT_TRANS_MATRIX applies once.
+        # Empties: no mesh matrix — pivot 0, POS_TRACK places them.
+        pivot_pos = unparented_kf_pivot(obj, name_to_pos[name])
     else:
         pivot_pos = mathutils.Vector(
             (
@@ -739,11 +798,14 @@ def _evaluated_mesh_copy(obj, depsgraph):
 
 
 def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
-    """Gather allowlisted meshes and optional light Empties for export.
+    """Gather body/wheel meshes and optional light helpers for export.
 
-    ProjShad / LightFProj / MaxBox are always stripped (engine uses .dds only for
-    the projectors — same as working 2.1.2). Required meshes are still force-
-    included when Selection Only is on.
+    ProjShad / LightFProj / MaxBox are always stripped (engine uses .dds only).
+    Required meshes are still force-included when Selection Only is on.
+
+    Light helpers (LightFL1… / Nadeo FLLight1…) are always KFDATA-only dummy
+    nodes — matching 2.1.2 Empties — even if the Blender object is a tiny plane.
+    Writing those zero-area planes as mesh chunks caused Quality 2 bbox (0.
     """
     scene = context.scene
     visible = [ob for ob in scene.objects if ob.visible_get()]
@@ -781,24 +843,28 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             )
             continue
 
-        if ob.type == "EMPTY":
-            if ob.name in ALLOWED_MESH_NAMES:
-                empty_objects.append(ob)
-                _vlog(
-                    verbose,
-                    f"  [COLLECTED] {ob.name}  type=EMPTY  "
-                    f"loc={_fmt_vec(ob.location)}  (KFDATA light helper)",
-                    log_lines,
-                )
-            else:
-                _vlog(
-                    verbose,
-                    f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)",
-                    log_lines,
-                )
+        # 2.1.2 wrote lights as Empties (KFDATA only). Keep Blender planes for
+        # authoring, but never emit their mesh geometry into the .3ds.
+        if ob.name in OPTIONAL_MESHES:
+            empty_objects.append(ob)
+            _vlog(
+                verbose,
+                f"  [COLLECTED] {ob.name}  type={ob.type}  "
+                f"loc={_fmt_vec(ob.location)}  "
+                f"(KFDATA-only light helper — no mesh chunk)",
+                log_lines,
+            )
             continue
 
-        if ob.name not in ALLOWED_MESH_NAMES:
+        if ob.type == "EMPTY":
+            _vlog(
+                verbose,
+                f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)",
+                log_lines,
+            )
+            continue
+
+        if ob.name not in REQUIRED_MESHES:
             _vlog(
                 verbose,
                 f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}",
@@ -823,6 +889,15 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                     log_lines,
                 )
                 continue
+            if ob_derived.name in OPTIONAL_MESHES:
+                empty_objects.append(ob_derived)
+                _vlog(
+                    verbose,
+                    f"  [COLLECTED] {ob_derived.name}  type={ob_derived.type}  "
+                    f"(KFDATA-only light helper — derived)",
+                    log_lines,
+                )
+                continue
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
                 _vlog(
                     verbose,
@@ -831,10 +906,10 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                     log_lines,
                 )
                 continue
-            if ob_derived.name not in ALLOWED_MESH_NAMES:
+            if ob_derived.name not in REQUIRED_MESHES:
                 _vlog(
                     verbose,
-                    f"  [SKIP] {ob_derived.name}  reason=not on allowlist (derived)",
+                    f"  [SKIP] {ob_derived.name}  reason=not a required body/wheel",
                     log_lines,
                 )
                 continue
@@ -868,7 +943,8 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
 
     _vlog(
         verbose,
-        f"Collected {len(mesh_objects)} mesh(es), {len(empty_objects)} empty helper(s)",
+        f"Collected {len(mesh_objects)} mesh(es), "
+        f"{len(empty_objects)} KF-only light helper(s)",
         log_lines,
     )
     return mesh_objects, empty_objects, material_dict, texture_info
@@ -905,8 +981,8 @@ def do_export(
             mat_name = material.name if material else (
                 texture_filename.rsplit(".", 1)[0] if texture_filename else "None"
             )
-        sane_mat = sane_name(mat_name)
-        sane_map = sane_name(texture_filename) if texture_filename else None
+        sane_mat = _display_name(sane_name(mat_name))
+        sane_map = _display_name(sane_name(texture_filename)) if texture_filename else None
         _vlog(
             verbose,
             f"  [MAT] name={sane_mat}  mapfile={sane_map or '<none>'}  "
@@ -984,8 +1060,10 @@ def do_export(
         )
         _vlog(
             verbose,
-            f"  [WRITTEN] {ob.name}  type=EMPTY  "
-            f"kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(ob.location)}",
+            f"  [WRITTEN] {ob.name}  type={ob.type}  "
+            f"kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(ob.location)}  "
+            f"export_translation={_fmt_vec(ob.location)}  "
+            f"(KFDATA-only light helper — no mesh chunk)",
             log_lines,
         )
 
