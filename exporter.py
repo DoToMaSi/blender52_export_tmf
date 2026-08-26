@@ -433,11 +433,10 @@ def make_kf_obj_node(obj, name_to_id, name_to_scale, name_to_pos, name_to_rot):
     kf_obj_node.add_subchunk(obj_node_header_chunk)
 
     if (parent is None) or (parent.name not in name_to_id):
-        pivot_pos = (
-            name_to_pos[name][0],
-            name_to_pos[name][1],
-            name_to_pos[name][2],
-        )
+        # 4KEX: mesh location is already in OBJECT_TRANS_MATRIX + POS_TRACK.
+        # Putting the same vector in OBJECT_PIVOT double-applies translation and
+        # collapses / blows the engine bounding box (Quality 2 → (0 ...)).
+        pivot_pos = (0.0, 0.0, 0.0)
     else:
         pivot_pos = mathutils.Vector(
             (
@@ -539,12 +538,20 @@ def collect_mesh_data(context, use_selection):
 
     Only REQUIRED_MESHES and OPTIONAL_MESHES are exported. Maxbox / MaxBox is
     always excluded (any casing, Blender .001 duplicates, even when selected).
+
+    When Selection Only is on, every visible REQUIRED mesh is still included so
+    ProjShad / LightFProj cannot be dropped by accident.
     """
     scene = context.scene
+    visible = [ob for ob in scene.objects if ob.visible_get()]
     if use_selection:
-        objects = [ob for ob in scene.objects if ob.visible_get() and ob.select_get()]
+        objects = [
+            ob
+            for ob in visible
+            if ob.select_get() or ob.name in REQUIRED_MESHES
+        ]
     else:
-        objects = [ob for ob in scene.objects if ob.visible_get()]
+        objects = visible
 
     mesh_objects = []
     material_dict = {}
@@ -644,6 +651,9 @@ def do_export(context, filename, mesh_objects, material_dict):
 
     with open(filename, "wb") as file:
         primary.write(file)
+
+    exported = ", ".join(sorted(name_to_id.keys()))
+    print(f"Exported {len(name_to_id)} objects: {exported}")
 
     reset_name_tables()
     return True

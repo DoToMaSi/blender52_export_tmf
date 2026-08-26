@@ -32,8 +32,12 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
     use_selection: bpy.props.BoolProperty(
         name="Selection Only",
-        description="Export selected objects only",
-        default=True,
+        description=(
+            "Export selected objects only. Required meshes (including ProjShad / "
+            "LightFProj) are still included when visible, so they cannot be dropped "
+            "by accident"
+        ),
+        default=False,
     )
 
     use_strict: bpy.props.BoolProperty(
@@ -114,11 +118,13 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             cleanup_mesh_objects(mesh_objects)
 
         elapsed = time.time() - start_time
+        names = sorted({ob.name for ob, _ in mesh_objects})
         print(f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds")
+        print(f"Objects ({len(names)}): {', '.join(names)}")
         print(filepath)
         self.report(
             {"INFO"},
-            f"Exported {filepath} ({ADDON_NAME} v{ADDON_VERSION})",
+            f"Exported {len(names)} meshes — {ADDON_NAME} v{ADDON_VERSION}",
         )
         return {"FINISHED"}
 
