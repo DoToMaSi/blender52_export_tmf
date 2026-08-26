@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "export_3ds_tmf"
-version = "2.2.23"
-name = "Export 3DS for TrackMania Forever"
-tagline = "Export validated 3DS car geometry for TrackMania"
+version = "2.3.0"
+name = "TrackMania Forever 3DS"
+tagline = "Import, validate, and export TMF car 3DS geometry"
 maintainer = "Douglas Tomacheski"
 type = "add-on"
 
@@ -20,4 +20,4 @@ copyright = [
 tags = ["Import-Export"]
 
 [permissions]
-files = "Export 3DS models to disk"
+files = "Import and export 3DS models to disk"

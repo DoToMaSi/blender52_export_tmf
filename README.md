@@ -1,6 +1,6 @@
-# Export 3DS for TrackMania Forever
+# TrackMania Forever 3DS
 
-Blender 5.2 extension for exporting validated 3DS car geometry for **TrackMania Nations** and **TrackMania United**.
+Blender **5.2** extension for authoring **TrackMania Nations / United Forever** car geometry: import/export `.3ds`, scene setup, validation, and helper spawners.
 
 Based on the original Blender 2.81 exporter by Glauco Bacchi, Campbell Barton, Bob Holcomb, Richard Lärkäng, Damien McGinnes, Mark Stijnman, and Sergey Savkin. Updated for Blender 5.2 by Douglas Tomacheski.
 
@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.1.5.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.0.zip`.
 
 ### Development (symlink)
 
@@ -35,23 +35,38 @@ blender --command extension build
 
 ## Usage
 
-1. Prepare the scene using TMF naming and scale rules (see below).
-2. Select all car objects (meshes + light empties).
-3. **File → Export → 3DS for TMF (.3ds)**.
-4. Choose **Poly Target** (High: 100k verts, Low: 3.6k verts).
-5. Leave **Strict** enabled for final car exports (blocks invalid naming, size, transforms, textures, vertex budget). Disable it only to test incomplete WIP scenes.
-6. Import the `.3ds` in-game: **Help → Custom data → Car geometry**.
+### N-panel (View3D → Sidebar → **TMF**)
 
-Export is **blocked** when **Strict** is on and validation fails. Errors appear in the Info header and System Console.
+| Tool | Action |
+|---|---|
+| **Prepare TMF Scene** | Metric units, tight view clips, wire **MaxBox** guide (3×6×2.5) |
+| **Validate TMF Scene** | Same Strict checks as export, without writing a file |
+| **Helpers** | Spawn `ProjShad`, `LightFProj`, `LightFL1/FR1/RL/RR` as meshes |
+| **Import / Export** | Shortcuts to the File menu operators |
+
+### Import
+
+1. **File → Import → 3DS for TMF (.3ds)** (or N-panel button).
+2. Prefer files produced by this extension — import reverses our export rules (world-baked verts → hub `location` + local verts).
+3. Stock Max/Nadeo cars may misplace pivots; that is a later stretch goal.
+
+### Export
+
+1. Prepare the scene (naming, scale, helpers).
+2. **File → Export → 3DS for TMF (.3ds)**.
+3. Choose **Poly Target** (High: 100k verts, Low: 3.6k verts).
+4. Leave **Strict** enabled for final car exports. Disable only to test incomplete WIP scenes.
+5. Import the `.3ds` in-game: **Help → Custom data → Car geometry**.
+
+Export is **blocked** when **Strict** is on and validation fails. Errors appear in the Info header, System Console, and N-panel.
 
 ## Blender scene setup (Max equivalent)
 
 | 3ds Max 7 setup | Blender equivalent |
 |---|---|
-| Units: Metric, Millimeters | Scene Properties → Units → Metric, Length: Millimeters |
-| System unit: 1 unit = 1 mm | Unit Scale **1.0**; Length display Millimeters. Scene numbers are already mm (bumper ≈ `1.5`, not `1500` or `0.0015`) |
-| Grid spacing 0.01 mm | Viewport overlays → scale grid as needed |
-| Maxbox.3ds (6×3×2.5 mm) | Optional scale reference object |
+| Units: Metric, Millimeters | **Prepare TMF Scene** or Scene Properties → Units → Metric |
+| System unit: 1 unit = 1 mm | Unit Scale **1.0**; scene numbers are already mm (bumper ≈ `1.5`) |
+| Maxbox.3ds (6×3×2.5 mm) | Wire **MaxBox** guide (never exported) |
 
 Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 
@@ -66,26 +81,27 @@ Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 | `gBody` | Glass / transparent parts |
 | `dFLWheel`, `sFLWheel`, … | Tires (d) and rims (s) per corner |
 
-Wheel suffixes: `FL`, `FR`, `RL`, `RR`. `Diffuse.dds` / `Details.dds` are bound by the game from the car zip, not by this exporter.
+Wheel suffixes: `FL`, `FR`, `RL`, `RR`. Keep **hub origins** on wheels (do not Apply Location).
 
-**Never exported** (same as 2.1.2 / stock TMF pipeline): `ProjShad`, `LightFProj` (keep the `.dds` in the car zip only), `MaxBox` (scale guide).
+### Exported helpers (meshes)
 
-### Light helpers (optional)
+| Name | Role |
+|---|---|
+| `ProjShad` | Ground fake-shadow plane (flat Z-up OK; export auto +90° X if needed) |
+| `LightFProj` | Headlight projector |
+| `LightFL1` / `LightFR1` / `LightRL` / `LightRR` | Flare origins (tiny meshes; rear often rot Z = π) |
 
-Tiny single-triangle meshes **or** Empties, exported when present:
-
-`LightFL1`…`LightFR3`, `LightRL`, `LightRR` — also accepts stock Nadeo names `FLLight1`, `RLLight`, etc.
+**Never exported:** `MaxBox` (scale guide only).
 
 ## Pre-export checklist
 
-- Object names spelled exactly (case-sensitive); only allowlisted parts are exported
+- Object names spelled exactly; only allowlisted parts are exported
 - **sBody** origin / location at `(0, 0, 0)`
-- **Apply Scale** and **Apply Rotation** on all required meshes
-- No loose vertices (every vertex must belong to a face)
+- **Apply Scale** on required meshes (rotation may stay unapplied for light aim)
+- No loose vertices
 - Absolute extents (mm): **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]**
 - Vertex count within poly target after triangulation
-- `ProjShad`, `LightFProj`, and `MaxBox` are never written into the `.3ds`
-- Materials / `Diffuse.dds` / `Details.dds` / `ProjShad.dds` are bound by the game from the car zip
+- Car zip still needs `Diffuse.dds` / `Details.dds` / `ProjShad.dds` / `Icon.dds`
 
 ## UV mapping rules
 
@@ -108,9 +124,10 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 
 | Problem | Check |
 |---|---|
-| Export blocked | Read error messages — naming, scale, transforms, textures |
+| Export / validate blocked | Read N-panel or console errors — naming, scale, extents |
 | Model invisible in game | Object spelling, vertex count, scale |
 | Wrong paint/details | UV layout and Diffuse vs Details assignment |
+| Import hubs wrong | Round-trip is tuned for this exporter’s files |
 | Vert count increased after export | Normal for UV splits; validate uses export vertex count |
 
 ## Project layout
@@ -119,11 +136,16 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 blender_export_tmf/
 ├── blender_manifest.toml
 ├── __init__.py
-├── export_operator.py      # Export operator + UI
-├── exporter.py             # 3DS binary export logic
-├── format_3ds.py           # 3DS chunk writer
+├── export_operator.py      # File > Export
+├── import_operator.py      # File > Import
+├── exporter.py             # 3DS binary export
+├── importer.py             # 3DS import + hub un-bake
+├── format_3ds.py           # Chunk read/write
 ├── material_utils.py       # Principled BSDF + texture helpers
-└── tmf_validation.py       # Strict TMF pre-export validation
+├── tmf_validation.py       # Strict validation
+├── tmf_scene.py            # Prepare scene + validate operator
+├── tmf_helpers.py          # ProjShad / light spawners
+└── ui_panel.py             # View3D N-panel (TMF tab)
 ```
 
 ## License

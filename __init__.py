@@ -16,8 +16,13 @@ from . import (
     export_operator,
     exporter,
     format_3ds,
+    import_operator,
+    importer,
     material_utils,
+    tmf_helpers,
+    tmf_scene,
     tmf_validation,
+    ui_panel,
 )
 
 _MODULES = (
@@ -27,6 +32,11 @@ _MODULES = (
     addon_info,
     exporter,
     export_operator,
+    importer,
+    import_operator,
+    tmf_scene,
+    tmf_helpers,
+    ui_panel,
 )
 
 if _needs_reload:
@@ -38,9 +48,17 @@ if _needs_reload:
 
 def register():
     export_operator.register()
+    import_operator.register()
+    tmf_scene.register()
+    tmf_helpers.register()
+    ui_panel.register()
 
 
 def unregister():
+    ui_panel.unregister()
+    tmf_helpers.unregister()
+    tmf_scene.unregister()
+    import_operator.unregister()
     export_operator.unregister()
     # Drop mutable 3DS name tables so a reinstall / F8 reload cannot leak state.
     try:

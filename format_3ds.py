@@ -402,3 +402,238 @@ class _3ds_chunk:
             variable.dump(indent + 1)
         for subchunk in self.subchunks:
             subchunk.dump(indent + 1)
+
+
+# ---------------------------------------------------------------------------
+# Binary reader (import) — mirror of the writers above for TMF round-trip
+# ---------------------------------------------------------------------------
+
+
+def _read_cstring(data, offset, end):
+    """Read a NUL-terminated ASCII string; return (text, next_offset)."""
+    start = offset
+    while offset < end and data[offset] != 0:
+        offset += 1
+    text = data[start:offset].decode("ASCII", "replace")
+    if offset < end and data[offset] == 0:
+        offset += 1
+    return text, offset
+
+
+class ParsedMaterial:
+    __slots__ = ("name", "mapfile")
+
+    def __init__(self):
+        self.name = ""
+        self.mapfile = None
+
+
+class ParsedMeshObject:
+    __slots__ = (
+        "name",
+        "verts",
+        "faces",
+        "uvs",
+        "face_materials",
+        "matrix_translation",
+        "matrix_rotation",
+    )
+
+    def __init__(self, name=""):
+        self.name = name
+        self.verts = []  # list of (x, y, z)
+        self.faces = []  # list of (i0, i1, i2)
+        self.uvs = None  # list of (u, v) or None
+        self.face_materials = {}  # mat_name -> [face_index, ...]
+        self.matrix_translation = (0.0, 0.0, 0.0)
+        self.matrix_rotation = None  # 3x3 row-major or None
+
+
+class ParsedKFNode:
+    __slots__ = ("name", "node_id", "parent", "pivot", "pos", "rot", "scl")
+
+    def __init__(self):
+        self.name = ""
+        self.node_id = 0
+        self.parent = 0xFFFF
+        self.pivot = (0.0, 0.0, 0.0)
+        self.pos = None
+        self.rot = None  # (angle, ax, ay, az) as stored by our exporter
+        self.scl = None
+
+
+class Parsed3DS:
+    __slots__ = ("materials", "objects", "kf_nodes")
+
+    def __init__(self):
+        self.materials = []
+        self.objects = []
+        self.kf_nodes = []
+
+
+def _iter_chunks(data, start, end):
+    offset = start
+    while offset + 6 <= end:
+        chunk_id = struct.unpack_from("<H", data, offset)[0]
+        chunk_size = struct.unpack_from("<I", data, offset + 2)[0]
+        if chunk_size < 6 or offset + chunk_size > end:
+            break
+        yield chunk_id, offset + 6, offset + chunk_size
+        offset += chunk_size
+
+
+def _parse_material(data, start, end):
+    mat = ParsedMaterial()
+    for cid, cstart, cend in _iter_chunks(data, start, end):
+        if cid == MATNAME:
+            mat.name, _ = _read_cstring(data, cstart, cend)
+        elif cid in (MAT_DIFFUSEMAP, MAT_OPACMAP, MAT_BUMPMAP, MAT_SPECMAP):
+            for scid, sstart, send in _iter_chunks(data, cstart, cend):
+                if scid == MATMAPFILE:
+                    mat.mapfile, _ = _read_cstring(data, sstart, send)
+                    break
+    return mat
+
+
+def _parse_mesh(data, start, end, mesh_obj):
+    for cid, cstart, cend in _iter_chunks(data, start, end):
+        if cid == OBJECT_VERTICES:
+            count = struct.unpack_from("<H", data, cstart)[0]
+            off = cstart + 2
+            verts = []
+            for _i in range(count):
+                if off + 12 > cend:
+                    break
+                x, y, z = struct.unpack_from("<3f", data, off)
+                verts.append((x, y, z))
+                off += 12
+            mesh_obj.verts = verts
+        elif cid == OBJECT_FACES:
+            count = struct.unpack_from("<H", data, cstart)[0]
+            off = cstart + 2
+            faces = []
+            for _i in range(count):
+                if off + 8 > cend:
+                    break
+                i0, i1, i2, _flags = struct.unpack_from("<4H", data, off)
+                faces.append((i0, i1, i2))
+                off += 8
+            mesh_obj.faces = faces
+            # Remaining bytes are face subchunks (materials, smooth groups).
+            for scid, sstart, send in _iter_chunks(data, off, cend):
+                if scid == OBJECT_MATERIAL:
+                    mat_name, n_off = _read_cstring(data, sstart, send)
+                    if n_off + 2 > send:
+                        continue
+                    nfaces = struct.unpack_from("<H", data, n_off)[0]
+                    n_off += 2
+                    indices = []
+                    for _j in range(nfaces):
+                        if n_off + 2 > send:
+                            break
+                        indices.append(struct.unpack_from("<H", data, n_off)[0])
+                        n_off += 2
+                    mesh_obj.face_materials[mat_name] = indices
+        elif cid == OBJECT_UV:
+            count = struct.unpack_from("<H", data, cstart)[0]
+            off = cstart + 2
+            uvs = []
+            for _i in range(count):
+                if off + 8 > cend:
+                    break
+                u, v = struct.unpack_from("<2f", data, off)
+                uvs.append((u, v))
+                off += 8
+            mesh_obj.uvs = uvs
+        elif cid == OBJECT_TRANS_MATRIX:
+            if cstart + 48 <= cend:
+                vals = struct.unpack_from("<12f", data, cstart)
+                # Exporter writes rows as w/x/y (3x3) then z translation.
+                mesh_obj.matrix_rotation = (
+                    (vals[0], vals[1], vals[2]),
+                    (vals[3], vals[4], vals[5]),
+                    (vals[6], vals[7], vals[8]),
+                )
+                mesh_obj.matrix_translation = (vals[9], vals[10], vals[11])
+
+
+def _parse_object(data, start, end):
+    name, body = _read_cstring(data, start, end)
+    obj = ParsedMeshObject(name)
+    for cid, cstart, cend in _iter_chunks(data, body, end):
+        if cid == OBJECT_MESH:
+            _parse_mesh(data, cstart, cend, obj)
+    return obj
+
+
+def _parse_track_keys(data, start, end, kind):
+    """Parse first key of a POS/ROT/SCL track. kind: 'pos'|'rot'|'scl'."""
+    # flags(2) + unknown(4) + unknown(4) + nkeys(4) + tcb_frame(4) + tcb_flags(2)
+    if start + 20 > end:
+        return None
+    nkeys = struct.unpack_from("<I", data, start + 10)[0]
+    if nkeys < 1:
+        return None
+    off = start + 20
+    if kind == "pos" or kind == "scl":
+        if off + 12 > end:
+            return None
+        return struct.unpack_from("<3f", data, off)
+    if kind == "rot":
+        if off + 16 > end:
+            return None
+        return struct.unpack_from("<4f", data, off)
+    return None
+
+
+def _parse_kf_node(data, start, end):
+    node = ParsedKFNode()
+    for cid, cstart, cend in _iter_chunks(data, start, end):
+        if cid == OBJECT_NODE_ID:
+            if cstart + 2 <= cend:
+                node.node_id = struct.unpack_from("<H", data, cstart)[0]
+        elif cid == OBJECT_NODE_HDR:
+            node.name, off = _read_cstring(data, cstart, cend)
+            if off + 6 <= cend:
+                _f1, _f2, parent = struct.unpack_from("<3H", data, off)
+                node.parent = parent
+        elif cid == OBJECT_PIVOT:
+            if cstart + 12 <= cend:
+                node.pivot = struct.unpack_from("<3f", data, cstart)
+        elif cid == POS_TRACK_TAG:
+            node.pos = _parse_track_keys(data, cstart, cend, "pos")
+        elif cid == ROT_TRACK_TAG:
+            node.rot = _parse_track_keys(data, cstart, cend, "rot")
+        elif cid == SCL_TRACK_TAG:
+            node.scl = _parse_track_keys(data, cstart, cend, "scl")
+    return node
+
+
+def parse_3ds_file(filepath):
+    """Parse a .3ds file into materials, mesh objects, and KF nodes."""
+    with open(filepath, "rb") as handle:
+        data = handle.read()
+
+    result = Parsed3DS()
+    if len(data) < 6:
+        raise ValueError("File too small to be a valid .3ds")
+
+    root_id = struct.unpack_from("<H", data, 0)[0]
+    root_size = struct.unpack_from("<I", data, 2)[0]
+    if root_id != PRIMARY:
+        raise ValueError(f"Not a 3DS file (expected PRIMARY 0x4D4D, got {hex(root_id)})")
+    root_end = min(root_size, len(data))
+
+    for cid, cstart, cend in _iter_chunks(data, 6, root_end):
+        if cid == OBJECTINFO:
+            for ocid, ostart, oend in _iter_chunks(data, cstart, cend):
+                if ocid == MATERIAL:
+                    result.materials.append(_parse_material(data, ostart, oend))
+                elif ocid == OBJECT:
+                    result.objects.append(_parse_object(data, ostart, oend))
+        elif cid == KFDATA:
+            for kcid, kstart, kend in _iter_chunks(data, cstart, cend):
+                if kcid == KFDATA_OBJECT_NODE_TAG:
+                    result.kf_nodes.append(_parse_kf_node(data, kstart, kend))
+
+    return result
