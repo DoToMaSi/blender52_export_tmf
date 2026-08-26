@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "export_3ds_tmf"
-version = "2.0.4"
+version = "2.1.0"
 name = "Export 3DS for TrackMania Forever"
 tagline = "Export validated 3DS car geometry for TrackMania"
 maintainer = "Douglas Tomacheski"

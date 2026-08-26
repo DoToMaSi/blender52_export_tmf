@@ -37,11 +37,16 @@ OPTIONAL_LIGHT_EMPTIES = (
     "LightRR",
 )
 
-MAX_BOX_MM = {
-    "x": 3.0,
-    "y": 6.0,
-    "z": 2.5,
-}
+# Always skipped by the exporter (helpers / reference geometry).
+EXPORT_HELPER_BLACKLIST = frozenset({
+    "ProjShad",
+    "LightFProj",
+    "Maxbox",
+})
+
+# Absolute world-space limits in millimeters (TMF Maxbox / engine space).
+ABS_Y_MM = (-3.0, 3.0)
+ABS_Z_MM = (-0.3, 2.2)
 
 VERTEX_LIMITS = {
     "HIGH": 100_000,
@@ -49,6 +54,7 @@ VERTEX_LIMITS = {
 }
 
 TRANSFORM_TOLERANCE = 1e-4
+ORIGIN_TOLERANCE = 1e-5
 MESH_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
 
 
@@ -100,25 +106,91 @@ def _safe_mesh_vertices(mesh):
         return None
 
 
-def mesh_bounds_mm(scene, mesh):
-    """Axis-aligned size of a mesh already transformed into world space."""
+def count_loose_vertices(mesh):
+    """Count vertices that are not referenced by any polygon (shattered / loose verts)."""
     verts = _safe_mesh_vertices(mesh)
     if verts is None or len(verts) == 0:
-        return None
+        return 0
 
-    min_co = [float("inf")] * 3
-    max_co = [float("-inf")] * 3
-    for vert in verts:
-        co = vert.co
-        for i in range(3):
-            min_co[i] = min(min_co[i], co[i])
-            max_co[i] = max(max_co[i], co[i])
+    used = [False] * len(verts)
+    try:
+        polygons = mesh.polygons
+    except (AttributeError, ReferenceError):
+        polygons = ()
 
-    return {
-        "x": bu_to_mm(scene, max_co[0] - min_co[0]),
-        "y": bu_to_mm(scene, max_co[1] - min_co[1]),
-        "z": bu_to_mm(scene, max_co[2] - min_co[2]),
+    for poly in polygons:
+        for vi in poly.vertices:
+            if 0 <= vi < len(used):
+                used[vi] = True
+
+    # Also mark triangle verts if polygons were empty but loop_triangles exist.
+    if not any(used):
+        try:
+            for tri in mesh.loop_triangles:
+                for vi in tri.vertices:
+                    if 0 <= vi < len(used):
+                        used[vi] = True
+        except (AttributeError, ReferenceError):
+            pass
+
+    return sum(1 for flag in used if not flag)
+
+
+def check_absolute_extents_mm(scene, mesh):
+    """
+    Return a list of error suffixes if any vertex is outside absolute TMF space.
+    Mesh vertices are expected in world space (Blender units).
+    """
+    verts = _safe_mesh_vertices(mesh)
+    if verts is None or len(verts) == 0:
+        return ["has no evaluable mesh geometry"]
+
+    y_min, y_max = ABS_Y_MM
+    z_min, z_max = ABS_Z_MM
+    errors = []
+    worst = {
+        "y_low": None,
+        "y_high": None,
+        "z_low": None,
+        "z_high": None,
     }
+
+    for vert in verts:
+        y_mm = bu_to_mm(scene, vert.co.y)
+        z_mm = bu_to_mm(scene, vert.co.z)
+
+        if y_mm < y_min - TRANSFORM_TOLERANCE:
+            if worst["y_low"] is None or y_mm < worst["y_low"]:
+                worst["y_low"] = y_mm
+        elif y_mm > y_max + TRANSFORM_TOLERANCE:
+            if worst["y_high"] is None or y_mm > worst["y_high"]:
+                worst["y_high"] = y_mm
+
+        if z_mm < z_min - TRANSFORM_TOLERANCE:
+            if worst["z_low"] is None or z_mm < worst["z_low"]:
+                worst["z_low"] = z_mm
+        elif z_mm > z_max + TRANSFORM_TOLERANCE:
+            if worst["z_high"] is None or z_mm > worst["z_high"]:
+                worst["z_high"] = z_mm
+
+    if worst["y_low"] is not None:
+        errors.append(
+            f"Y vertex {worst['y_low']:.4f} mm is below absolute min {y_min} mm"
+        )
+    if worst["y_high"] is not None:
+        errors.append(
+            f"Y vertex {worst['y_high']:.4f} mm is above absolute max {y_max} mm"
+        )
+    if worst["z_low"] is not None:
+        errors.append(
+            f"Z vertex {worst['z_low']:.4f} mm is below absolute min {z_min} mm"
+        )
+    if worst["z_high"] is not None:
+        errors.append(
+            f"Z vertex {worst['z_high']:.4f} mm is above absolute max {z_max} mm"
+        )
+
+    return errors
 
 
 def count_export_vertices(mesh_objects):
@@ -173,27 +245,47 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
             )
 
+        # Trackmania: one material slot per mesh (multi-slot files often become 1 KB junk).
         try:
-            bounds = mesh_bounds_mm(scene, mesh)
+            slot_count = len(mesh.materials)
+        except (AttributeError, ReferenceError, TypeError):
+            slot_count = len(ob.data.materials) if ob.type == "MESH" and ob.data else 0
+        if slot_count > 1:
+            result.add_error(
+                f"{ob.name}: has {slot_count} material slots (Trackmania allows at most 1)"
+            )
+
+        loose = count_loose_vertices(mesh)
+        if loose > 0:
+            result.add_error(
+                f"{ob.name}: has {loose} loose/disconnected vertices not used by any face"
+            )
+
+        try:
+            for msg in check_absolute_extents_mm(scene, mesh):
+                result.add_error(f"{ob.name}: {msg}")
         except Exception as exc:
-            result.add_error(f"{ob.name}: bounding box failed ({exc})")
-            continue
-
-        if bounds is None:
-            result.add_error(f"{ob.name}: could not compute bounding box")
-            continue
-
-        for axis, limit in MAX_BOX_MM.items():
-            if bounds[axis] > limit + TRANSFORM_TOLERANCE:
-                result.add_error(
-                    f"{ob.name}: {axis}-axis size {bounds[axis]:.4f} mm "
-                    f"exceeds max {limit} mm"
-                )
+            result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
 
         if expected_texture_filename(ob.name) is not None:
             ok, message = texture_reference_matches(ob, mesh)
             if not ok:
                 result.add_error(message)
+
+    # Engine anchors suspension / tires from sBody origin.
+    for ob, _mesh in mesh_objects:
+        if ob.name != "sBody":
+            continue
+        loc = ob.location
+        if (
+            abs(loc.x) > ORIGIN_TOLERANCE
+            or abs(loc.y) > ORIGIN_TOLERANCE
+            or abs(loc.z) > ORIGIN_TOLERANCE
+        ):
+            result.add_error(
+                f"sBody: origin must be at (0, 0, 0), found "
+                f"({loc.x:.6f}, {loc.y:.6f}, {loc.z:.6f})"
+            )
 
     vertex_limit = VERTEX_LIMITS.get(poly_target, VERTEX_LIMITS["HIGH"])
     try:

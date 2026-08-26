@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.0.4.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.1.0.zip`.
 
 ### Development (symlink)
 
@@ -76,12 +76,15 @@ Exported when present; not required by Strict validation. If present, they must 
 
 ## Pre-export checklist
 
-- Object names spelled exactly (case-sensitive)
-- **Apply Scale** and **Apply Rotation** on all required meshes (Reset Xform equivalent)
-- Pivot / origin at object center
-- Per-object bounding box ≤ **3 mm (X) × 6 mm (Y) × 2.5 mm (Z)**
+- Object names spelled exactly (case-sensitive); only allowlisted parts are exported
+- **sBody** origin / location at `(0, 0, 0)`
+- **Apply Scale** and **Apply Rotation** on all required meshes
+- At most **one material slot** per required mesh
+- No loose vertices (every vertex must belong to a face)
+- Absolute extents (mm): **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]**
 - Vertex count within poly target after triangulation
 - Materials use Image Texture nodes referencing `Diffuse.dds` or `Details.dds`
+- `ProjShad`, `LightFProj`, and `Maxbox` are never exported (even if selected)
 
 ## UV mapping rules
 

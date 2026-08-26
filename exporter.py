@@ -13,7 +13,6 @@ import bpy
 import mathutils
 
 from .format_3ds import (
-    BOUNDBOX,
     KFDATA,
     KFDATA_KFCURTIME,
     KFDATA_KFHDR,
@@ -32,7 +31,6 @@ from .format_3ds import (
     MASTERSCALE,
     OBJECT,
     OBJECT_FACES,
-    OBJECT_INSTANCE_NAME,
     OBJECT_MATERIAL,
     OBJECT_MESH,
     OBJECT_NODE_HDR,
@@ -71,6 +69,14 @@ from .material_utils import (
     get_material_export_data,
     get_object_texture_reference,
 )
+from .tmf_validation import (
+    EXPORT_HELPER_BLACKLIST,
+    OPTIONAL_LIGHT_EMPTIES,
+    REQUIRED_MESHES,
+)
+
+ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES)
+ALLOWED_EMPTY_NAMES = frozenset(OPTIONAL_LIGHT_EMPTIES)
 
 
 class tri_wrapper:
@@ -511,26 +517,44 @@ def _evaluated_mesh_copy(obj, depsgraph):
 
 
 def collect_mesh_data(context, use_selection):
-    """Gather evaluated mesh data and empty helpers from the scene."""
+    """Gather evaluated mesh data and allowed empty helpers from the scene.
+
+    Only REQUIRED_MESHES and OPTIONAL_LIGHT_EMPTIES are exported. Helper /
+    reference objects (ProjShad, LightFProj, Maxbox) are always excluded,
+    even when they are selected.
+    """
     scene = context.scene
     if use_selection:
         objects = [ob for ob in scene.objects if ob.visible_get() and ob.select_get()]
     else:
         objects = [ob for ob in scene.objects if ob.visible_get()]
 
-    empty_objects = [ob for ob in objects if ob.type == "EMPTY"]
+    empty_objects = []
     mesh_objects = []
     material_dict = {}
 
     depsgraph = context.evaluated_depsgraph_get()
 
     for ob in objects:
+        if ob.name in EXPORT_HELPER_BLACKLIST:
+            continue
+
+        if ob.type == "EMPTY":
+            if ob.name in ALLOWED_EMPTY_NAMES:
+                empty_objects.append(ob)
+            continue
+
+        if ob.name not in ALLOWED_MESH_NAMES:
+            continue
+
         derived = re_create_derived_objects(context, ob)
         if derived is None:
             continue
 
         for ob_derived, matrix_world in derived:
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
+                continue
+            if ob_derived.name not in ALLOWED_MESH_NAMES:
                 continue
 
             data = _evaluated_mesh_copy(ob_derived, depsgraph)
