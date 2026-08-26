@@ -551,7 +551,7 @@ def collect_mesh_data(context, use_selection):
         if derived is None:
             continue
 
-        for ob_derived, matrix_world in derived:
+        for ob_derived, _matrix_world in derived:
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
                 continue
             if ob_derived.name not in ALLOWED_MESH_NAMES:
@@ -563,8 +563,9 @@ def collect_mesh_data(context, use_selection):
                     bpy.data.meshes.remove(data)
                 continue
 
-            # Bake object world matrix into vertex positions (4KEX / original behavior).
-            data.transform(matrix_world)
+            # Keep vertices in local/object space. World location/rotation are written
+            # separately into the 3DS object matrix and KFDATA (4KEX). Baking
+            # matrix_world here double-applies translation and floats wheels.
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 

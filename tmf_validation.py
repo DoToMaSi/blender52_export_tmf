@@ -136,15 +136,16 @@ def count_loose_vertices(mesh):
     return sum(1 for flag in used if not flag)
 
 
-def check_absolute_extents_mm(scene, mesh):
+def check_absolute_extents_mm(scene, mesh, ob=None):
     """
-    Return a list of error suffixes if any vertex is outside absolute TMF space.
-    Mesh vertices are expected in world space (Blender units).
+    Return error suffixes if any vertex is outside absolute TMF world space.
+    Mesh vertices are in local/object space; world position uses matrix_world.
     """
     verts = _safe_mesh_vertices(mesh)
     if verts is None or len(verts) == 0:
         return ["has no evaluable mesh geometry"]
 
+    matrix_world = ob.matrix_world if ob is not None else None
     y_min, y_max = ABS_Y_MM
     z_min, z_max = ABS_Z_MM
     errors = []
@@ -156,8 +157,9 @@ def check_absolute_extents_mm(scene, mesh):
     }
 
     for vert in verts:
-        y_mm = bu_to_mm(scene, vert.co.y)
-        z_mm = bu_to_mm(scene, vert.co.z)
+        co = matrix_world @ vert.co if matrix_world is not None else vert.co
+        y_mm = bu_to_mm(scene, co.y)
+        z_mm = bu_to_mm(scene, co.z)
 
         if y_mm < y_min - TRANSFORM_TOLERANCE:
             if worst["y_low"] is None or y_mm < worst["y_low"]:
@@ -262,7 +264,7 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
             )
 
         try:
-            for msg in check_absolute_extents_mm(scene, mesh):
+            for msg in check_absolute_extents_mm(scene, mesh, ob):
                 result.add_error(f"{ob.name}: {msg}")
         except Exception as exc:
             result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
