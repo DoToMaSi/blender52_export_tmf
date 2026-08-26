@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.1.1.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.1.2.zip`.
 
 ### Development (symlink)
 

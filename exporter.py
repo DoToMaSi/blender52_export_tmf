@@ -419,7 +419,13 @@ def make_kf_obj_node(obj, name_to_id, name_to_scale, name_to_pos, name_to_rot):
     kf_obj_node.add_subchunk(obj_node_header_chunk)
 
     if (parent is None) or (parent.name not in name_to_id):
-        pivot_pos = (0.0, 0.0, 0.0)
+        # Unparented objects (typical for Empties / wheels at scene root) must keep
+        # their world location as the KFDATA pivot; (0,0,0) glued lights to chassis origin.
+        pivot_pos = (
+            name_to_pos[name][0],
+            name_to_pos[name][1],
+            name_to_pos[name][2],
+        )
     else:
         pivot_pos = mathutils.Vector(
             (
