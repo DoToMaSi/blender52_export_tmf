@@ -12,6 +12,7 @@ import time
 import bpy
 import bpy_extras
 
+from .addon_info import ADDON_NAME, ADDON_VERSION
 from .exporter import cleanup_mesh_objects, collect_mesh_data, do_export
 from .tmf_validation import validate_export
 
@@ -66,7 +67,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     def execute(self, context):
         filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
         start_time = time.time()
-        print("\n_____START_____")
+        print(f"\n_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
 
         mesh_objects = []
         try:
@@ -111,9 +112,13 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         finally:
             cleanup_mesh_objects(mesh_objects)
 
-        print(f"finished export in {time.time() - start_time:.3f} seconds")
+        elapsed = time.time() - start_time
+        print(f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds")
         print(filepath)
-        self.report({"INFO"}, f"Exported {filepath}")
+        self.report(
+            {"INFO"},
+            f"Exported {filepath} ({ADDON_NAME} v{ADDON_VERSION})",
+        )
         return {"FINISHED"}
 
 
