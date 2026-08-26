@@ -123,29 +123,13 @@ def _display_name(value):
 
 def unparented_kf_pivot(obj, location):
     """
-    KFDATA pivot for root objects.
+    KFDATA pivot for root (unparented) objects — match 2.1.2 / 4KEX.
 
-    Body/wheel meshes store world location in OBJECT_TRANS_MATRIX. TrackMania
-    applies (POS_TRACK - PIVOT) on top of that — pivot must equal POS_TRACK so
-    location is applied once.
-
-    Light helpers (Empties *or* tiny Blender planes) are written as KFDATA-only
-    dummy nodes like 2.1.2 Empties: no mesh chunk, pivot (0,0,0), POS places them.
-    Exporting zero-area light planes as real meshes caused
-    "Quality 2's bounding box (0 ...".
+    Always (0, 0, 0). Location stays in OBJECT_TRANS_MATRIX and POS_TRACK (hub
+    pivot for wheels). Mesh verts are world-baked via data.transform(matrix_world)
+    like 2.1.2 — not hub-local only.
     """
-    if obj.type == "EMPTY" or obj.name in OPTIONAL_MESHES:
-        return (0.0, 0.0, 0.0)
-    return (float(location[0]), float(location[1]), float(location[2]))
-
-
-def effective_export_translation(location, pivot):
-    """World translation TM sees: matrix_T + (POS_TRACK - PIVOT) for root objects."""
-    return (
-        location[0] + (location[0] - pivot[0]),
-        location[1] + (location[1] - pivot[1]),
-        location[2] + (location[2] - pivot[2]),
-    )
+    return (0.0, 0.0, 0.0)
 
 
 def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
@@ -238,7 +222,10 @@ def write_verbose_log(filepath, log_lines):
 
 
 def _mesh_world_bounds(ob, mesh):
-    """Axis-aligned world bounds from local verts + matrix_world (export space)."""
+    """
+    AABB of export mesh verts. After 2.1.2-style data.transform(matrix_world),
+    vert.co is already in world space — do not multiply by matrix_world again.
+    """
     try:
         verts = mesh.vertices
     except (AttributeError, ReferenceError):
@@ -246,10 +233,9 @@ def _mesh_world_bounds(ob, mesh):
     if not verts:
         return None
 
-    matrix = ob.matrix_world
     xs, ys, zs = [], [], []
     for vert in verts:
-        co = matrix @ vert.co
+        co = vert.co
         xs.append(to_tmf_mm(co.x))
         ys.append(to_tmf_mm(co.y))
         zs.append(to_tmf_mm(co.z))
@@ -301,7 +287,6 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
     bounds = _mesh_world_bounds(ob, mesh) if mesh is not None else None
     bind = resolve_3ds_material_binding(ob, mesh, texture_filename, image)
     pivot = unparented_kf_pivot(ob, loc) if ob.parent is None else None
-    eff_t = effective_export_translation(loc, pivot) if pivot is not None else None
 
     def out(msg, to_console=False):
         _vlog(True, msg, log_lines, to_console=to_console)
@@ -312,46 +297,28 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
     out(f"         dimensions={_fmt_vec(dims)}  verts={n_verts}  tris={n_tris}")
     if bounds is not None:
         out(
-            f"         blender_world min={_fmt_vec(bounds['min'])} "
+            f"         export_mesh min={_fmt_vec(bounds['min'])} "
             f"max={_fmt_vec(bounds['max'])} size={_fmt_vec(bounds['size'])}"
         )
-    if pivot is not None and eff_t is not None:
+    if pivot is not None:
         out(
             f"         kf_pivot={_fmt_vec(pivot)}  pos_track={_fmt_vec(loc)}  "
-            f"export_translation={_fmt_vec(eff_t)}"
+            f"hub_location={_fmt_vec(loc)}  (verts world-baked like 2.1.2)"
         )
-        delta = (
-            abs(eff_t[0] - loc[0]) + abs(eff_t[1] - loc[1]) + abs(eff_t[2] - loc[2])
-        )
-        if mesh is not None and delta > 1e-6:
-            out(
-                "         [WARN] export_translation != object location "
-                "(POS-PIVOT not cancelled — double transform risk)",
-                to_console=True,
-            )
-            # Only walk verts when the cancel failed (rare / diagnostic).
-            xs, ys, zs = [], [], []
-            for vert in mesh.vertices:
-                xs.append(vert.co[0] + eff_t[0])
-                ys.append(vert.co[1] + eff_t[1])
-                zs.append(vert.co[2] + eff_t[2])
-            if xs:
-                emin = (min(xs), min(ys), min(zs))
-                emax = (max(xs), max(ys), max(zs))
-                out(f"         export_aabb min={_fmt_vec(emin)} max={_fmt_vec(emax)}")
-                y_lo, y_hi = ABS_Y_MM
-                z_lo, z_hi = ABS_Z_MM
-                if emin[1] < y_lo or emax[1] > y_hi or emin[2] < z_lo or emax[2] > z_hi:
-                    out(
-                        f"         [WARN] export_aabb outside TMF max box "
-                        f"Y{list(ABS_Y_MM)} Z{list(ABS_Z_MM)}",
-                        to_console=True,
-                    )
-        elif bounds is not None:
-            out(
-                f"         export_aabb min={_fmt_vec(bounds['min'])} "
-                f"max={_fmt_vec(bounds['max'])}  (matches blender_world)"
-            )
+        if bounds is not None:
+            y_lo, y_hi = ABS_Y_MM
+            z_lo, z_hi = ABS_Z_MM
+            if (
+                bounds["min"][1] < y_lo
+                or bounds["max"][1] > y_hi
+                or bounds["min"][2] < z_lo
+                or bounds["max"][2] > z_hi
+            ):
+                out(
+                    f"         [WARN] export_aabb outside TMF max box "
+                    f"Y{list(ABS_Y_MM)} Z{list(ABS_Z_MM)}",
+                    to_console=True,
+                )
     out(f"         blender_slots={bind['blender_slots'] or '<none>'}")
     out(f"         has_uv={bind['has_uv']}")
     out(
@@ -736,8 +703,8 @@ def make_kf_obj_node(obj, name_to_id, name_to_scale, name_to_pos, name_to_rot):
     kf_obj_node.add_subchunk(obj_node_header_chunk)
 
     if (parent is None) or (parent.name not in name_to_id):
-        # Meshes: pivot == POS cancels track so OBJECT_TRANS_MATRIX applies once.
-        # Empties: no mesh matrix — pivot 0, POS_TRACK places them.
+        # 2.1.2 / 4KEX: unparented pivot is always (0,0,0); POS + mesh matrix
+        # carry the Blender location (required for wheel hub origins).
         pivot_pos = unparented_kf_pivot(obj, name_to_pos[name])
     else:
         pivot_pos = mathutils.Vector(
@@ -967,6 +934,11 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                 )
                 continue
 
+            # 2.1.2 / 4KEX: bake derived world matrix into verts. TM expects world-space
+            # coordinates while OBJECT_TRANS_MATRIX / POS_TRACK still carry the hub
+            # location (rotation pivot). Local-only verts made Quality 2 use a
+            # hub-centered wheel AABB (~±0.33) that fails the -0.2 floor.
+            data.transform(_matrix_world)
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 

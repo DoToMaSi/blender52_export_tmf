@@ -184,13 +184,14 @@ def count_loose_vertices(mesh):
 def check_absolute_extents_mm(scene, mesh, ob=None):
     """
     Return error suffixes if any vertex is outside absolute TMF world space.
-    Mesh vertices are in local/object space; world position uses matrix_world.
+
+    Export mesh copies are world-baked via data.transform(matrix_world) (2.1.2);
+    vert.co is already in world space — do not multiply by matrix_world again.
     """
     verts = _safe_mesh_vertices(mesh)
     if verts is None or len(verts) == 0:
         return ["has no evaluable mesh geometry"]
 
-    matrix_world = ob.matrix_world if ob is not None else None
     y_min, y_max = ABS_Y_MM
     z_min, z_max = ABS_Z_MM
     errors = []
@@ -202,7 +203,7 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
     }
 
     for vert in verts:
-        co = matrix_world @ vert.co if matrix_world is not None else vert.co
+        co = vert.co
         y_mm = to_tmf_mm(co.y)
         z_mm = to_tmf_mm(co.z)
 
