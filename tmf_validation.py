@@ -32,6 +32,8 @@ PROJECTOR_MESHES = (
 )
 
 # Optional light helpers (tiny meshes or Empties). Exported as KFDATA-only.
+# Matching is case-insensitive via is_optional_light_helper() — stock blends use
+# mixed casings (FLlight1 vs FLLight1 vs LightFL1).
 OPTIONAL_MESHES = (
     # Tutorial / manual naming
     "LightFL1",
@@ -42,7 +44,16 @@ OPTIONAL_MESHES = (
     "LightFR3",
     "LightRL",
     "LightRR",
-    # Stock Nadeo mesh naming (tiny helper meshes)
+    # Stock Nadeo / MainBodyHigh style (e.g. MainBed(High).blend)
+    "FLlight1",
+    "FRlight1",
+    "FLlight2",
+    "FRlight2",
+    "FLlight3",
+    "FRlight3",
+    "RLlight",
+    "RRlight",
+    # Alternate capitalizations seen in docs / older exports
     "FLLight1",
     "FRLight1",
     "FLLight2",
@@ -52,6 +63,20 @@ OPTIONAL_MESHES = (
     "RLLight",
     "RRLight",
 )
+
+_OPTIONAL_MESHES_FOLD = frozenset(n.casefold() for n in OPTIONAL_MESHES)
+
+
+def _strip_blender_suffix(name):
+    if "." in name and name.rsplit(".", 1)[1].isdigit():
+        return name.rsplit(".", 1)[0]
+    return name
+
+
+def is_optional_light_helper(name):
+    """True for light flare helpers (any common casing / .001 suffix)."""
+    return _strip_blender_suffix(name).casefold() in _OPTIONAL_MESHES_FOLD
+
 
 # Only MaxBox is never written (in-scene scale guide).
 EXPORT_HELPER_BLACKLIST = frozenset({
@@ -65,14 +90,12 @@ MIN_LIGHTFPROJ_EXTENT = 0.5
 
 def is_export_blacklisted(name):
     """True if this object must never be written to the .3ds (any casing / .001)."""
-    base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
-    return base.casefold() in EXPORT_HELPER_BLACKLIST
+    return _strip_blender_suffix(name).casefold() in EXPORT_HELPER_BLACKLIST
 
 
 def is_projector_mesh(name):
     """True for ProjShad / LightFProj (any casing / .001)."""
-    base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
-    folded = base.casefold()
+    folded = _strip_blender_suffix(name).casefold()
     return folded == "projshad" or folded.startswith("lightfproj")
 
 

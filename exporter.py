@@ -77,6 +77,7 @@ from .tmf_validation import (
     OPTIONAL_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
+    is_optional_light_helper,
     is_projector_mesh,
     mesh_export_names,
     to_tmf_mm,
@@ -851,7 +852,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             continue
 
         # Light markers: KFDATA-only (never write zero-area mesh chunks).
-        if ob.name in OPTIONAL_MESHES:
+        if is_optional_light_helper(ob.name):
             empty_objects.append(ob)
             _vlog(
                 verbose,
@@ -895,7 +896,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                     log_lines,
                 )
                 continue
-            if ob_derived.name in OPTIONAL_MESHES:
+            if is_optional_light_helper(ob_derived.name):
                 empty_objects.append(ob_derived)
                 _vlog(
                     verbose,
