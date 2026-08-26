@@ -523,9 +523,8 @@ def _evaluated_mesh_copy(obj, depsgraph):
 def collect_mesh_data(context, use_selection):
     """Gather evaluated mesh data and allowed empty helpers from the scene.
 
-    Only REQUIRED_MESHES and OPTIONAL_LIGHT_EMPTIES are exported. Helper /
-    reference objects (ProjShad, LightFProj, Maxbox) are always excluded,
-    even when they are selected.
+    Only REQUIRED_MESHES and OPTIONAL_LIGHT_EMPTIES are exported. The Maxbox
+    reference object is always excluded, even when selected.
     """
     scene = context.scene
     if use_selection:
