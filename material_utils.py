@@ -9,18 +9,6 @@
 
 import bpy
 
-DIFFUSE_TEXTURE = "Diffuse.dds"
-DETAILS_TEXTURE = "Details.dds"
-
-
-def expected_texture_filename(object_name):
-    """Return the TMF texture filename expected for a given object name."""
-    if object_name.startswith("s"):
-        return DIFFUSE_TEXTURE
-    if object_name.startswith("d") or object_name.startswith("g"):
-        return DETAILS_TEXTURE
-    return None
-
 
 def get_principled_bsdf(material):
     if material is None or material.node_tree is None:
@@ -81,11 +69,6 @@ def get_material_image(material):
     return None
 
 
-def get_mesh_uv_image(mesh):
-    """UV layers do not carry image references in modern Blender; use materials."""
-    return None
-
-
 def _iter_object_materials(obj, mesh=None):
     """Yield materials from mesh slots, then object data slots."""
     seen = set()
@@ -106,39 +89,23 @@ def _iter_object_materials(obj, mesh=None):
 
 
 def get_object_texture_reference(obj, mesh=None):
-    """Resolve the texture image and expected TMF filename for an object."""
-    expected = expected_texture_filename(obj.name)
-    image = get_mesh_uv_image(mesh) if mesh is not None else None
+    """
+    Resolve an optional texture filename from the object's materials.
+
+    Trackmania binds Diffuse.dds / Details.dds by object name in the car zip,
+    not from Blender material assignments — so we never invent or enforce those
+    names here. If a material has an image, its basename is passed through as-is.
+    """
+    image = None
+    for mat in _iter_object_materials(obj, mesh):
+        image = get_material_image(mat)
+        if image is not None:
+            break
 
     if image is None:
-        for mat in _iter_object_materials(obj, mesh):
-            image = get_material_image(mat)
-            if image is not None:
-                break
-
-    return expected, image
-
-
-def texture_reference_matches(obj, mesh=None):
-    """Check whether the object references the correct TMF texture filename."""
-    expected = expected_texture_filename(obj.name)
-    if expected is None:
-        return True, None
-
-    if obj.type != "MESH" and mesh is None:
-        return True, None
-
-    _, image = get_object_texture_reference(obj, mesh if mesh is not None else obj.data)
-    if image is None:
-        return False, f"{obj.name}: missing texture reference, expected {expected}"
+        return None, None
 
     basename = bpy.path.basename(image.filepath)
     if not basename:
         basename = image.name
-
-    if basename.lower() == expected.lower() or expected.lower() in basename.lower():
-        return True, None
-
-    return False, (
-        f"{obj.name}: texture '{basename}' does not match expected {expected}"
-    )
+    return basename or None, image

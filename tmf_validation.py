@@ -9,8 +9,6 @@
 
 from dataclasses import dataclass, field
 
-from .material_utils import expected_texture_filename, texture_reference_matches
-
 REQUIRED_MESHES = (
     "sBody",
     "dBody",
@@ -247,16 +245,6 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
             )
 
-        # Trackmania: one material slot per mesh (multi-slot files often become 1 KB junk).
-        try:
-            slot_count = len(mesh.materials)
-        except (AttributeError, ReferenceError, TypeError):
-            slot_count = len(ob.data.materials) if ob.type == "MESH" and ob.data else 0
-        if slot_count > 1:
-            result.add_error(
-                f"{ob.name}: has {slot_count} material slots (Trackmania allows at most 1)"
-            )
-
         loose = count_loose_vertices(mesh)
         if loose > 0:
             result.add_error(
@@ -268,11 +256,6 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 result.add_error(f"{ob.name}: {msg}")
         except Exception as exc:
             result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
-
-        if expected_texture_filename(ob.name) is not None:
-            ok, message = texture_reference_matches(ob, mesh)
-            if not ok:
-                result.add_error(message)
 
     # Engine anchors suspension / tires from sBody origin.
     for ob, _mesh in mesh_objects:

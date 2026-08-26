@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.1.2.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.1.3.zip`.
 
 ### Development (symlink)
 
@@ -79,12 +79,11 @@ Exported when present; not required by Strict validation. If present, they must 
 - Object names spelled exactly (case-sensitive); only allowlisted parts are exported
 - **sBody** origin / location at `(0, 0, 0)`
 - **Apply Scale** and **Apply Rotation** on all required meshes
-- At most **one material slot** per required mesh
 - No loose vertices (every vertex must belong to a face)
 - Absolute extents (mm): **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]**
 - Vertex count within poly target after triangulation
-- Materials use Image Texture nodes referencing `Diffuse.dds` or `Details.dds`
 - `ProjShad`, `LightFProj`, and `Maxbox` are never exported (even if selected)
+- Materials / `Diffuse.dds` / `Details.dds` are bound by the game from the car zip (not by this exporter)
 
 ## UV mapping rules
 

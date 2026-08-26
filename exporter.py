@@ -65,7 +65,6 @@ from .format_3ds import (
     uv_key,
 )
 from .material_utils import (
-    expected_texture_filename,
     get_material_export_data,
     get_object_texture_reference,
 )
@@ -482,8 +481,7 @@ def _register_materials(material_dict, ob, mesh, texture_filename):
     if mat_ls:
         for mat in mat_ls:
             if mat:
-                tex = texture_filename or expected_texture_filename(ob.name)
-                material_dict.setdefault((mat.name, tex), (mat, tex))
+                material_dict.setdefault((mat.name, texture_filename), (mat, texture_filename))
     elif texture_filename:
         material_dict.setdefault((None, texture_filename), (None, texture_filename))
 
