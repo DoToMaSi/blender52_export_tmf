@@ -542,9 +542,8 @@ def make_kf_obj_node(obj, name_to_id, name_to_scale, name_to_pos, name_to_rot):
     kf_obj_node.add_subchunk(obj_node_header_chunk)
 
     if (parent is None) or (parent.name not in name_to_id):
-        # 4KEX: mesh location is already in OBJECT_TRANS_MATRIX + POS_TRACK.
-        # Putting the same vector in OBJECT_PIVOT double-applies translation and
-        # collapses / blows the engine bounding box (Quality 2 → (0 ...)).
+        # Original 4KEX (fdae86a): unparented pivot is always (0,0,0).
+        # World placement comes from POS_TRACK (+ mesh matrix for meshes).
         pivot_pos = (0.0, 0.0, 0.0)
     else:
         pivot_pos = mathutils.Vector(
@@ -651,13 +650,11 @@ def _evaluated_mesh_copy(obj, depsgraph):
 
 
 def collect_mesh_data(context, use_selection, verbose=False):
-    """Gather evaluated mesh data for allowlisted TMF car parts from the scene.
+    """Gather allowlisted meshes and optional light Empties for export.
 
-    Only REQUIRED_MESHES and OPTIONAL_MESHES are exported. Maxbox / MaxBox is
-    always excluded (any casing, Blender .001 duplicates, even when selected).
-
-    When Selection Only is on, every visible REQUIRED mesh is still included so
-    ProjShad / LightFProj cannot be dropped by accident.
+    ProjShad / LightFProj / MaxBox are always stripped (engine uses .dds only for
+    the projectors — same as working 2.1.2). Required meshes are still force-
+    included when Selection Only is on.
     """
     scene = context.scene
     visible = [ob for ob in scene.objects if ob.visible_get()]
@@ -671,8 +668,8 @@ def collect_mesh_data(context, use_selection, verbose=False):
         objects = visible
 
     mesh_objects = []
+    empty_objects = []
     material_dict = {}
-    # texture_filename / image keyed by object name for verbose write log
     texture_info = {}
 
     depsgraph = context.evaluated_depsgraph_get()
@@ -686,18 +683,23 @@ def collect_mesh_data(context, use_selection, verbose=False):
 
     for ob in objects:
         if is_export_blacklisted(ob.name):
-            _vlog(verbose, f"  [SKIP] {ob.name}  reason=blacklisted (MaxBox guide)")
+            _vlog(
+                verbose,
+                f"  [SKIP] {ob.name}  reason=blacklisted "
+                f"(ProjShad/LightFProj/MaxBox — .dds / guide only)",
+            )
             continue
 
         if ob.type == "EMPTY":
-            if ob.name in ALLOWED_MESH_NAMES or ob.name in OPTIONAL_MESHES:
+            if ob.name in ALLOWED_MESH_NAMES:
+                empty_objects.append(ob)
                 _vlog(
                     verbose,
-                    f"  [SKIP] {ob.name}  reason=Empty not supported "
-                    f"(use a tiny mesh helper instead)  loc={_fmt_vec(ob.location)}",
+                    f"  [COLLECTED] {ob.name}  type=EMPTY  "
+                    f"loc={_fmt_vec(ob.location)}  (KFDATA light helper)",
                 )
             else:
-                _vlog(verbose, f"  [SKIP] {ob.name}  reason=Empty (not exported)")
+                _vlog(verbose, f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)")
             continue
 
         if ob.name not in ALLOWED_MESH_NAMES:
@@ -741,8 +743,7 @@ def collect_mesh_data(context, use_selection, verbose=False):
                 continue
 
             # Keep vertices in local/object space. World location/rotation are written
-            # separately into the 3DS object matrix and KFDATA (4KEX). Baking
-            # matrix_world here double-applies translation and floats wheels.
+            # separately into the 3DS object matrix and KFDATA (4KEX).
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 
@@ -758,11 +759,22 @@ def collect_mesh_data(context, use_selection, verbose=False):
                 status="COLLECTED",
             )
 
-    _vlog(verbose, f"Collected {len(mesh_objects)} mesh object(s) for write")
-    return mesh_objects, material_dict, texture_info
+    _vlog(
+        verbose,
+        f"Collected {len(mesh_objects)} mesh(es), {len(empty_objects)} empty helper(s)",
+    )
+    return mesh_objects, empty_objects, material_dict, texture_info
 
 
-def do_export(context, filename, mesh_objects, material_dict, verbose=False, texture_info=None):
+def do_export(
+    context,
+    filename,
+    mesh_objects,
+    empty_objects,
+    material_dict,
+    verbose=False,
+    texture_info=None,
+):
     """Save the Blender scene to a 3DS file."""
     reset_name_tables()
     texture_info = texture_info or {}
@@ -807,6 +819,12 @@ def do_export(context, filename, mesh_objects, material_dict, verbose=False, tex
         name_to_pos[ob.name] = ob.location
         name_to_rot[ob.name] = ob.rotation_euler.to_quaternion().inverted()
 
+    for ob in empty_objects:
+        name_to_id[ob.name] = len(name_to_id)
+        name_to_scale[ob.name] = ob.dimensions
+        name_to_pos[ob.name] = ob.location
+        name_to_rot[ob.name] = ob.rotation_euler.to_quaternion().inverted()
+
     _vlog(verbose, "----- Write .3ds -----")
     for ob, blender_mesh in mesh_objects:
         try:
@@ -834,6 +852,16 @@ def do_export(context, filename, mesh_objects, material_dict, verbose=False, tex
         except Exception as exc:
             _vlog(verbose, f"  [FAIL] {ob.name}  reason=write error: {exc}")
             raise
+
+    for ob in empty_objects:
+        kfdata.add_subchunk(
+            make_kf_obj_node(ob, name_to_id, name_to_scale, name_to_pos, name_to_rot)
+        )
+        _vlog(
+            verbose,
+            f"  [WRITTEN] {ob.name}  type=EMPTY  "
+            f"kf_pivot={_fmt_vec(ob.location)}  pos_track={_fmt_vec(ob.location)}",
+        )
 
     primary.add_subchunk(object_info)
     primary.add_subchunk(kfdata)

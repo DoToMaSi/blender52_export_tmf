@@ -33,9 +33,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description=(
-            "Export selected objects only. Required meshes (including ProjShad / "
-            "LightFProj) are still included when visible, so they cannot be dropped "
-            "by accident"
+            "Export selected objects only. Required body/wheel meshes are still "
+            "included when visible so they cannot be dropped by accident"
         ),
         default=False,
     )
@@ -45,14 +44,11 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         description=(
             "Enforce TrackMania Forever / Nations / United car-geometry rules before writing "
             "the .3ds file. When enabled, export is blocked unless all of the following pass: "
-            "exact required mesh names (sBody, dBody, gBody, eight wheel parts, "
-            "ProjShad, LightFProj); "
+            "exact required mesh names (sBody, dBody, gBody, and eight wheel parts); "
             "sBody origin at (0, 0, 0); applied scale/rotation on required meshes; "
             "no loose/disconnected vertices; absolute world extents Y in [-3, 3] mm and "
             "Z in [-0.3, 2.2] mm; vertex count within Poly Target. "
-            "Materials are left to the game (not validated here). "
-            "Only allowlisted car meshes are exported "
-            "(MaxBox / Maxbox and stray objects are always ignored). "
+            "ProjShad / LightFProj / MaxBox are never exported (engine uses .dds / guide). "
             "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
             "silently on invalid files"
         ),
@@ -94,13 +90,13 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
         mesh_objects = []
         try:
-            mesh_objects, material_dict, texture_info = collect_mesh_data(
+            mesh_objects, empty_objects, material_dict, texture_info = collect_mesh_data(
                 context,
                 self.use_selection,
                 verbose=verbose,
             )
 
-            if not mesh_objects:
+            if not mesh_objects and not empty_objects:
                 self.report({"ERROR"}, "Nothing to export (no allowlisted meshes found)")
                 return {"CANCELLED"}
 
@@ -137,6 +133,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     context,
                     filepath,
                     mesh_objects,
+                    empty_objects,
                     material_dict,
                     verbose=verbose,
                     texture_info=texture_info,
@@ -150,7 +147,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             cleanup_mesh_objects(mesh_objects)
 
         elapsed = time.time() - start_time
-        names = sorted({ob.name for ob, _ in mesh_objects})
+        names = sorted({ob.name for ob, _ in mesh_objects} | {ob.name for ob in empty_objects})
         print(f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds")
         print(f"Objects ({len(names)}): {', '.join(names)}")
         print(filepath)
@@ -158,7 +155,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             print("_____END VERBOSE_____")
         self.report(
             {"INFO"},
-            f"Exported {len(names)} meshes — {ADDON_NAME} v{ADDON_VERSION}",
+            f"Exported {len(names)} objects — {ADDON_NAME} v{ADDON_VERSION}",
         )
         return {"FINISHED"}
 

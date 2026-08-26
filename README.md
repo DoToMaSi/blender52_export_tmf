@@ -65,16 +65,14 @@ Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 | `dBody` | Details (lights, interior, trim) |
 | `gBody` | Glass / transparent parts |
 | `dFLWheel`, `sFLWheel`, … | Tires (d) and rims (s) per corner |
-| `ProjShad` | Shadow projection mesh (flat plane with real volume) |
-| `LightFProj` | Headlight projection mesh (flat plane) |
 
 Wheel suffixes: `FL`, `FR`, `RL`, `RR`. `Diffuse.dds` / `Details.dds` are bound by the game from the car zip, not by this exporter.
 
-**Never exported:** `Maxbox` / `MaxBox` (scale reference only).
+**Never exported** (same as 2.1.2 / stock TMF pipeline): `ProjShad`, `LightFProj` (keep the `.dds` in the car zip only), `MaxBox` (scale guide).
 
-### Light helpers (optional meshes)
+### Light helpers (optional)
 
-Tiny single-triangle meshes (not Empties), exported when present:
+Tiny single-triangle meshes **or** Empties, exported when present:
 
 `LightFL1`…`LightFR3`, `LightRL`, `LightRR` — also accepts stock Nadeo names `FLLight1`, `RLLight`, etc.
 
@@ -86,8 +84,8 @@ Tiny single-triangle meshes (not Empties), exported when present:
 - No loose vertices (every vertex must belong to a face)
 - Absolute extents (mm): **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]**
 - Vertex count within poly target after triangulation
-- `Maxbox` is never exported (even if selected)
-- Materials / `Diffuse.dds` / `Details.dds` are bound by the game from the car zip (not by this exporter)
+- `ProjShad`, `LightFProj`, and `MaxBox` are never written into the `.3ds`
+- Materials / `Diffuse.dds` / `Details.dds` / `ProjShad.dds` are bound by the game from the car zip
 
 ## UV mapping rules
 
