@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.0.1.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.0.2.zip`.
 
 ### Development (symlink)
 
@@ -39,9 +39,10 @@ blender --command extension build
 2. Select all car objects (meshes + light empties).
 3. **File → Export → 3DS for TMF (.3ds)**.
 4. Choose **Poly Target** (High: 100k verts, Low: 3.6k verts).
-5. Import the `.3ds` in-game: **Help → Custom data → Car geometry**.
+5. Leave **Strict** enabled for final car exports (blocks invalid naming, size, transforms, textures, vertex budget). Disable it only to test incomplete WIP scenes.
+6. Import the `.3ds` in-game: **Help → Custom data → Car geometry**.
 
-Export is **blocked** if validation fails. Errors appear in the Info header and System Console.
+Export is **blocked** when **Strict** is on and validation fails. Errors appear in the Info header and System Console.
 
 ## Blender scene setup (Max equivalent)
 

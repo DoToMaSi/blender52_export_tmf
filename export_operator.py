@@ -35,9 +35,26 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         default=True,
     )
 
+    use_strict: bpy.props.BoolProperty(
+        name="Strict",
+        description=(
+            "Enforce TrackMania Forever / Nations / United car-geometry rules before writing "
+            "the .3ds file. When enabled, export is blocked unless all of the following pass: "
+            "exact required mesh names (sBody, dBody, gBody, and all eight wheel parts), "
+            "exact required light Empties (LightFL1–3, LightFR1–3, LightRL, LightRR), "
+            "applied scale and rotation on required meshes (location may remain for pivots), "
+            "per-object world size within the max box (3 mm X × 6 mm Y × 2.5 mm Z), "
+            "vertex count within the selected Poly Target limit, and Diffuse.dds / Details.dds "
+            "texture references on paintable vs detail parts. "
+            "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
+            "silently on invalid files"
+        ),
+        default=True,
+    )
+
     poly_target: bpy.props.EnumProperty(
         name="Poly Target",
-        description="Vertex budget for the exported car geometry",
+        description="Vertex budget for the exported car geometry (used by Strict validation)",
         items=(
             ("HIGH", "High Poly", "Up to 100,000 vertices (MainBodyHigh.Solid.gbx)"),
             ("LOW", "Low Poly", "Up to 3,600 vertices (MainBody.Solid.gbx)"),
@@ -57,21 +74,31 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 self.use_selection,
             )
 
-            validation = validate_export(
-                context,
-                mesh_objects,
-                empty_objects,
-                self.poly_target,
-            )
-            if not validation.ok:
-                for error in validation.errors[:8]:
-                    self.report({"ERROR"}, error)
-                if len(validation.errors) > 8:
-                    self.report(
-                        {"ERROR"},
-                        f"...and {len(validation.errors) - 8} more validation errors",
-                    )
+            if not mesh_objects and not empty_objects:
+                self.report({"ERROR"}, "Nothing to export (no meshes or empties found)")
                 return {"CANCELLED"}
+
+            if self.use_strict:
+                validation = validate_export(
+                    context,
+                    mesh_objects,
+                    empty_objects,
+                    self.poly_target,
+                )
+                if not validation.ok:
+                    for error in validation.errors[:8]:
+                        self.report({"ERROR"}, error)
+                    if len(validation.errors) > 8:
+                        self.report(
+                            {"ERROR"},
+                            f"...and {len(validation.errors) - 8} more validation errors",
+                        )
+                    return {"CANCELLED"}
+            else:
+                self.report(
+                    {"WARNING"},
+                    "Strict validation off — incomplete TMF geometry may fail in-game",
+                )
 
             context.window.cursor_set("WAIT")
             try:
