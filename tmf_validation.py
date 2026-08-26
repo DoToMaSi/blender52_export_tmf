@@ -21,6 +21,8 @@ REQUIRED_MESHES = (
     "sRLWheel",
     "dRRWheel",
     "sRRWheel",
+    "ProjShad",
+    "LightFProj",
 )
 
 # Optional car meshes (exported when present; not required for Strict validation).
@@ -43,8 +45,6 @@ OPTIONAL_MESHES = (
     "FRLight3",
     "RLLight",
     "RRLight",
-    "ProjShad",
-    "LightFProj",
 )
 
 # Not exported: Maxbox / MaxBox is an in-scene scale reference only.
@@ -60,6 +60,8 @@ def is_export_blacklisted(name):
     return base.casefold() in EXPORT_HELPER_BLACKLIST
 
 # Absolute world-space limits in millimeters (TMF Maxbox / engine space).
+# These are real engine limits (~6×3×2.5 mm box) — NOT meters×1000.
+# A real-world bumper at 1.5 m must be authored at ~1.5 mm (0.1% scale).
 ABS_Y_MM = (-3.0, 3.0)
 ABS_Z_MM = (-0.3, 2.2)
 
@@ -83,12 +85,19 @@ class ValidationResult:
         self.errors.append(message)
 
 
+def to_tmf_mm(value):
+    """Coordinate as written to the .3ds (TMF Maxbox millimeters).
+
+    The exporter writes Blender floats as-is (MASTERSCALE = 1). TMF cars are
+    authored at 0.1% scale with 1 scene unit = 1 mm, so validation must use the
+    same numbers — never multiply by 1000 (that falsely treats Maxbox mm as meters).
+    """
+    return value
+
+
+# Back-compat alias (scene argument ignored — kept for older call sites).
 def bu_to_mm(scene, value):
-    """Convert a Blender-unit distance to millimeters."""
-    scale = scene.unit_settings.scale_length
-    if scale <= 0.0:
-        scale = 1.0
-    return value * scale * 1000.0
+    return to_tmf_mm(value)
 
 
 def gather_export_objects(context, use_selection):
@@ -173,8 +182,8 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
 
     for vert in verts:
         co = matrix_world @ vert.co if matrix_world is not None else vert.co
-        y_mm = bu_to_mm(scene, co.y)
-        z_mm = bu_to_mm(scene, co.z)
+        y_mm = to_tmf_mm(co.y)
+        z_mm = to_tmf_mm(co.z)
 
         if y_mm < y_min - TRANSFORM_TOLERANCE:
             if worst["y_low"] is None or y_mm < worst["y_low"]:

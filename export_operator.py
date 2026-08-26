@@ -41,7 +41,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         description=(
             "Enforce TrackMania Forever / Nations / United car-geometry rules before writing "
             "the .3ds file. When enabled, export is blocked unless all of the following pass: "
-            "exact required mesh names (sBody, dBody, gBody, and eight wheel parts); "
+            "exact required mesh names (sBody, dBody, gBody, eight wheel parts, "
+            "ProjShad, LightFProj); "
             "sBody origin at (0, 0, 0); applied scale/rotation on required meshes; "
             "no loose/disconnected vertices; absolute world extents Y in [-3, 3] mm and "
             "Z in [-0.3, 2.2] mm; vertex count within Poly Target. "

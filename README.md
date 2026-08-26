@@ -49,7 +49,7 @@ Export is **blocked** when **Strict** is on and validation fails. Errors appear 
 | 3ds Max 7 setup | Blender equivalent |
 |---|---|
 | Units: Metric, Millimeters | Scene Properties → Units → Metric, Length: Millimeters |
-| System unit: 1 unit = 1 mm | Unit Scale: **1.0** (1 BU = 1 mm) |
+| System unit: 1 unit = 1 mm | Unit Scale **1.0**; Length display Millimeters. Scene numbers are already mm (bumper ≈ `1.5`, not `1500` or `0.0015`) |
 | Grid spacing 0.01 mm | Viewport overlays → scale grid as needed |
 | Maxbox.3ds (6×3×2.5 mm) | Optional scale reference object |
 
@@ -65,16 +65,18 @@ Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 | `dBody` | Details (lights, interior, trim) |
 | `gBody` | Glass / transparent parts |
 | `dFLWheel`, `sFLWheel`, … | Tires (d) and rims (s) per corner |
+| `ProjShad` | Shadow projection mesh (flat plane with real volume) |
+| `LightFProj` | Headlight projection mesh (flat plane) |
 
 Wheel suffixes: `FL`, `FR`, `RL`, `RR`. `Diffuse.dds` / `Details.dds` are bound by the game from the car zip, not by this exporter.
 
-**Not exported:** `ProjShad`, `LightFProj` (engine uses `.dds` only), `Maxbox` (scale reference).
+**Never exported:** `Maxbox` / `MaxBox` (scale reference only).
 
-### Empty helpers (optional)
+### Light helpers (optional meshes)
 
-`LightFL1`, `LightFR1`, `LightFL2`, `LightFR2`, `LightFL3`, `LightFR3`, `LightRL`, `LightRR`
+Tiny single-triangle meshes (not Empties), exported when present:
 
-Exported when present; not required by Strict validation. If present, they must be Empty objects.
+`LightFL1`…`LightFR3`, `LightRL`, `LightRR` — also accepts stock Nadeo names `FLLight1`, `RLLight`, etc.
 
 ## Pre-export checklist
 
@@ -84,7 +86,7 @@ Exported when present; not required by Strict validation. If present, they must 
 - No loose vertices (every vertex must belong to a face)
 - Absolute extents (mm): **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]**
 - Vertex count within poly target after triangulation
-- `ProjShad`, `LightFProj`, and `Maxbox` are never exported (even if selected)
+- `Maxbox` is never exported (even if selected)
 - Materials / `Diffuse.dds` / `Details.dds` are bound by the game from the car zip (not by this exporter)
 
 ## UV mapping rules

@@ -65,6 +65,7 @@ from .format_3ds import (
     uv_key,
 )
 from .material_utils import (
+    expected_texture_filename,
     get_material_export_data,
     get_object_texture_reference,
 )
@@ -122,6 +123,8 @@ def make_material_chunk(material, texture_filename=None):
 
     if material:
         name_str = material.name
+    elif texture_filename:
+        name_str = texture_filename.rsplit(".", 1)[0]
     else:
         name_str = "None"
 
@@ -228,7 +231,7 @@ def count_mesh_export_vertices(mesh):
         return 0
 
 
-def make_faces_chunk(tri_list, mesh, material_dict):
+def make_faces_chunk(tri_list, mesh, material_dict, fallback_mat_name=None):
     materials = mesh.materials
     face_chunk = _3ds_chunk(OBJECT_FACES)
     face_list = _3ds_array()
@@ -239,11 +242,19 @@ def make_faces_chunk(tri_list, mesh, material_dict):
         if m:
             obj_material_names.append(_3ds_string(sane_name(m.name)))
             obj_material_faces.append(_3ds_array())
+
+    use_fallback = len(obj_material_names) == 0 and fallback_mat_name
+    if use_fallback:
+        obj_material_names.append(_3ds_string(sane_name(fallback_mat_name)))
+        obj_material_faces.append(_3ds_array())
+
     n_materials = len(obj_material_names)
 
     for i, tri in enumerate(tri_list):
         face_list.add(_3ds_face(tri.vertex_index))
-        if tri.mat < n_materials:
+        if use_fallback:
+            obj_material_faces[0].add(_3ds_ushort(i))
+        elif tri.mat < n_materials:
             obj_material_faces[tri.mat].add(_3ds_ushort(i))
 
     face_chunk.add_variable("faces", face_list)
@@ -286,7 +297,12 @@ def make_mesh_chunk(mesh, material_dict, ob, name_to_id, name_to_scale, name_to_
 
     mesh_chunk = _3ds_chunk(OBJECT_MESH)
     mesh_chunk.add_subchunk(make_vert_chunk(vert_array))
-    mesh_chunk.add_subchunk(make_faces_chunk(tri_list, mesh, material_dict))
+    fallback_mat = expected_texture_filename(ob.name)
+    if fallback_mat:
+        fallback_mat = fallback_mat.rsplit(".", 1)[0]
+    mesh_chunk.add_subchunk(
+        make_faces_chunk(tri_list, mesh, material_dict, fallback_mat)
+    )
 
     mesh1 = _3ds_chunk(OBJECT_TRANS_MATRIX)
 
@@ -480,7 +496,8 @@ def _register_materials(material_dict, ob, mesh, texture_filename):
             if mat:
                 material_dict.setdefault((mat.name, texture_filename), (mat, texture_filename))
     elif texture_filename:
-        material_dict.setdefault((None, texture_filename), (None, texture_filename))
+        stem = texture_filename.rsplit(".", 1)[0]
+        material_dict.setdefault((stem, texture_filename), (None, texture_filename))
 
     if mat_ls_len:
         for face in mesh.loop_triangles:

@@ -9,6 +9,22 @@
 
 import bpy
 
+DIFFUSE_TEXTURE = "Diffuse.dds"
+DETAILS_TEXTURE = "Details.dds"
+
+
+def expected_texture_filename(object_name):
+    """Canonical TMF map names written into the .3ds material chunks."""
+    if object_name == "ProjShad":
+        return "ProjShad.dds"
+    if object_name.startswith("LightFProj"):
+        return "LightFProj.dds"
+    if object_name.startswith("s"):
+        return DIFFUSE_TEXTURE
+    if object_name.startswith("d") or object_name.startswith("g"):
+        return DETAILS_TEXTURE
+    return None
+
 
 def get_principled_bsdf(material):
     if material is None or material.node_tree is None:
@@ -90,17 +106,22 @@ def _iter_object_materials(obj, mesh=None):
 
 def get_object_texture_reference(obj, mesh=None):
     """
-    Resolve an optional texture filename from the object's materials.
+    Resolve the texture filename written into the .3ds material map chunk.
 
-    Trackmania binds Diffuse.dds / Details.dds by object name in the car zip,
-    not from Blender material assignments — so we never invent or enforce those
-    names here. If a material has an image, its basename is passed through as-is.
+    Prefer canonical TMF names (Diffuse.dds, Details.dds, ProjShad.dds,
+    LightFProj.dds) so the compiler gets the map references it needs even when
+    Blender materials have no Image Texture node. Otherwise pass through the
+    image basename if one is present.
     """
     image = None
     for mat in _iter_object_materials(obj, mesh):
         image = get_material_image(mat)
         if image is not None:
             break
+
+    expected = expected_texture_filename(obj.name)
+    if expected:
+        return expected, image
 
     if image is None:
         return None, None
