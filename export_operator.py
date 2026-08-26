@@ -39,8 +39,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description=(
-            "Export selected objects only. Required body/wheel meshes are still "
-            "included when visible so they cannot be dropped by accident"
+            "Export only selected visible objects — nothing is force-included. "
+            "With Strict on, missing required meshes still block the export"
         ),
         default=False,
     )

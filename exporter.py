@@ -75,7 +75,6 @@ from .tmf_validation import (
     ABS_Y_MM,
     ABS_Z_MM,
     OPTIONAL_MESHES,
-    PROJECTOR_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
     is_projector_mesh,
@@ -853,13 +852,10 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
     """
     scene = context.scene
     visible = [ob for ob in scene.objects if ob.visible_get()]
-    force_names = frozenset(REQUIRED_MESHES) | frozenset(PROJECTOR_MESHES)
     if use_selection:
-        objects = [
-            ob
-            for ob in visible
-            if ob.select_get() or ob.name in force_names
-        ]
+        # Selection Only is absolute: no force-include of required/projector meshes.
+        # Strict validation (if on) still reports missing required names after collect.
+        objects = [ob for ob in visible if ob.select_get()]
     else:
         objects = visible
 
@@ -874,7 +870,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
     _vlog(
         verbose,
         f"Candidates: {len(objects)} visible"
-        f"{' (selection + required)' if use_selection else ''}",
+        f"{' (selection only)' if use_selection else ''}",
         log_lines,
     )
 
