@@ -67,7 +67,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             "and texture map names (expected vs Blender image). Open Window → Toggle System "
             "Console to read the log"
         ),
-        default=False,
+        default=True,
     )
 
     poly_target: bpy.props.EnumProperty(
