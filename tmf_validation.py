@@ -23,8 +23,9 @@ REQUIRED_MESHES = (
     "sRRWheel",
 )
 
-# Optional light helpers (exported when present; not required for Strict validation).
-OPTIONAL_LIGHT_EMPTIES = (
+# Optional car meshes (exported when present; not required for Strict validation).
+OPTIONAL_MESHES = (
+    # Tutorial / manual naming
     "LightFL1",
     "LightFR1",
     "LightFL2",
@@ -33,12 +34,21 @@ OPTIONAL_LIGHT_EMPTIES = (
     "LightFR3",
     "LightRL",
     "LightRR",
-)
-
-# Not exported: engine uses .dds only for shadow/light projection; Maxbox is a scale guide.
-EXPORT_HELPER_BLACKLIST = frozenset({
+    # Stock Nadeo mesh naming (tiny helper meshes)
+    "FLLight1",
+    "FRLight1",
+    "FLLight2",
+    "FRLight2",
+    "FLLight3",
+    "FRLight3",
+    "RLLight",
+    "RRLight",
     "ProjShad",
     "LightFProj",
+)
+
+# Not exported: Maxbox is an in-scene scale reference only.
+EXPORT_HELPER_BLACKLIST = frozenset({
     "Maxbox",
 })
 
@@ -205,24 +215,15 @@ def count_export_vertices(mesh_objects):
     return total
 
 
-def validate_export(context, mesh_objects, empty_objects, poly_target):
+def validate_export(context, mesh_objects, poly_target):
     result = ValidationResult()
     scene = context.scene
 
     mesh_names = {ob.name for ob, _ in mesh_objects}
-    empty_names = {ob.name for ob in empty_objects}
-    all_names = mesh_names | empty_names
 
     for required in REQUIRED_MESHES:
         if required not in mesh_names:
             result.add_error(f"Missing required mesh object: {required}")
-
-    for name in OPTIONAL_LIGHT_EMPTIES:
-        if name not in empty_names:
-            continue
-        ob = next(ob for ob in empty_objects if ob.name == name)
-        if ob.type != "EMPTY":
-            result.add_error(f"{name}: light helpers must be Empty objects, found {ob.type}")
 
     for ob, mesh in mesh_objects:
         if ob.name not in REQUIRED_MESHES:
@@ -283,12 +284,12 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
             f"Vertex count {vertex_count} exceeds {poly_target} poly limit ({vertex_limit})"
         )
 
-    if not mesh_objects and not empty_objects:
+    if not mesh_objects:
         result.add_error("No objects selected for export")
 
-    for name in sorted(all_names):
-        for required in REQUIRED_MESHES + OPTIONAL_LIGHT_EMPTIES:
-            if required not in all_names and name.lower() == required.lower():
+    for name in sorted(mesh_names):
+        for required in REQUIRED_MESHES + OPTIONAL_MESHES:
+            if required not in mesh_names and name.lower() == required.lower():
                 result.add_error(
                     f"Object '{name}' looks like '{required}' but spelling/case differs"
                 )

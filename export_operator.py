@@ -45,8 +45,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             "no loose/disconnected vertices; absolute world extents Y in [-3, 3] mm and "
             "Z in [-0.3, 2.2] mm; vertex count within Poly Target. "
             "Materials are left to the game (not validated here). "
-            "Only allowlisted car parts and optional light Empties are exported "
-            "(ProjShad, LightFProj, Maxbox and stray objects are ignored). "
+            "Only allowlisted car meshes are exported "
+            "(Maxbox and stray objects are ignored). "
             "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
             "silently on invalid files"
         ),
@@ -70,20 +70,19 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
         mesh_objects = []
         try:
-            mesh_objects, empty_objects, material_dict = collect_mesh_data(
+            mesh_objects, material_dict = collect_mesh_data(
                 context,
                 self.use_selection,
             )
 
-            if not mesh_objects and not empty_objects:
-                self.report({"ERROR"}, "Nothing to export (no meshes or empties found)")
+            if not mesh_objects:
+                self.report({"ERROR"}, "Nothing to export (no allowlisted meshes found)")
                 return {"CANCELLED"}
 
             if self.use_strict:
                 validation = validate_export(
                     context,
                     mesh_objects,
-                    empty_objects,
                     self.poly_target,
                 )
                 if not validation.ok:
@@ -103,7 +102,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
             context.window.cursor_set("WAIT")
             try:
-                do_export(context, filepath, mesh_objects, empty_objects, material_dict)
+                do_export(context, filepath, mesh_objects, material_dict)
             finally:
                 context.window.cursor_set("DEFAULT")
         except Exception as exc:

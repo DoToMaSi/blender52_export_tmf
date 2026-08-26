@@ -70,12 +70,11 @@ from .material_utils import (
 )
 from .tmf_validation import (
     EXPORT_HELPER_BLACKLIST,
-    OPTIONAL_LIGHT_EMPTIES,
+    OPTIONAL_MESHES,
     REQUIRED_MESHES,
 )
 
-ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES)
-ALLOWED_EMPTY_NAMES = frozenset(OPTIONAL_LIGHT_EMPTIES)
+ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES) | frozenset(OPTIONAL_MESHES)
 
 
 class tri_wrapper:
@@ -418,15 +417,11 @@ def make_kf_obj_node(obj, name_to_id, name_to_scale, name_to_pos, name_to_rot):
     kf_obj_node.add_subchunk(obj_node_header_chunk)
 
     if (parent is None) or (parent.name not in name_to_id):
-        # Only Empties need world pivot; meshes use (0,0,0) at root (4KEX / TMF wheels).
-        if obj.type == "EMPTY":
-            pivot_pos = (
-                name_to_pos[name][0],
-                name_to_pos[name][1],
-                name_to_pos[name][2],
-            )
-        else:
-            pivot_pos = (0.0, 0.0, 0.0)
+        pivot_pos = (
+            name_to_pos[name][0],
+            name_to_pos[name][1],
+            name_to_pos[name][2],
+        )
     else:
         pivot_pos = mathutils.Vector(
             (
@@ -523,10 +518,10 @@ def _evaluated_mesh_copy(obj, depsgraph):
 
 
 def collect_mesh_data(context, use_selection):
-    """Gather evaluated mesh data and allowed empty helpers from the scene.
+    """Gather evaluated mesh data for allowlisted TMF car parts from the scene.
 
-    Only REQUIRED_MESHES and OPTIONAL_LIGHT_EMPTIES are exported. ProjShad,
-    LightFProj, and Maxbox are always excluded (even when selected).
+    Only REQUIRED_MESHES and OPTIONAL_MESHES are exported. Maxbox is always
+    excluded (even when selected).
     """
     scene = context.scene
     if use_selection:
@@ -534,7 +529,6 @@ def collect_mesh_data(context, use_selection):
     else:
         objects = [ob for ob in scene.objects if ob.visible_get()]
 
-    empty_objects = []
     mesh_objects = []
     material_dict = {}
 
@@ -542,11 +536,6 @@ def collect_mesh_data(context, use_selection):
 
     for ob in objects:
         if ob.name in EXPORT_HELPER_BLACKLIST:
-            continue
-
-        if ob.type == "EMPTY":
-            if ob.name in ALLOWED_EMPTY_NAMES:
-                empty_objects.append(ob)
             continue
 
         if ob.name not in ALLOWED_MESH_NAMES:
@@ -577,10 +566,10 @@ def collect_mesh_data(context, use_selection):
             texture_filename, _image = get_object_texture_reference(ob_derived, data)
             _register_materials(material_dict, ob_derived, data, texture_filename)
 
-    return mesh_objects, empty_objects, material_dict
+    return mesh_objects, material_dict
 
 
-def do_export(context, filename, mesh_objects, empty_objects, material_dict):
+def do_export(context, filename, mesh_objects, material_dict):
     """Save the Blender scene to a 3DS file."""
     reset_name_tables()
 
@@ -611,12 +600,6 @@ def do_export(context, filename, mesh_objects, empty_objects, material_dict):
         name_to_pos[ob.name] = ob.location
         name_to_rot[ob.name] = ob.rotation_euler.to_quaternion().inverted()
 
-    for ob in empty_objects:
-        name_to_id[ob.name] = len(name_to_id)
-        name_to_scale[ob.name] = ob.dimensions
-        name_to_pos[ob.name] = ob.location
-        name_to_rot[ob.name] = ob.rotation_euler.to_quaternion().inverted()
-
     for ob, blender_mesh in mesh_objects:
         object_chunk = _3ds_chunk(OBJECT)
         object_chunk.add_variable("name", _3ds_string(sane_name(ob.name)))
@@ -632,11 +615,6 @@ def do_export(context, filename, mesh_objects, empty_objects, material_dict):
             )
         )
         object_info.add_subchunk(object_chunk)
-        kfdata.add_subchunk(
-            make_kf_obj_node(ob, name_to_id, name_to_scale, name_to_pos, name_to_rot)
-        )
-
-    for ob in empty_objects:
         kfdata.add_subchunk(
             make_kf_obj_node(ob, name_to_id, name_to_scale, name_to_pos, name_to_rot)
         )
