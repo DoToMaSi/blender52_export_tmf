@@ -47,7 +47,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             "Z in [-0.3, 2.2] mm; vertex count within Poly Target. "
             "Materials are left to the game (not validated here). "
             "Only allowlisted car meshes are exported "
-            "(Maxbox and stray objects are ignored). "
+            "(MaxBox / Maxbox and stray objects are always ignored). "
             "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
             "silently on invalid files"
         ),

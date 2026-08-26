@@ -47,10 +47,17 @@ OPTIONAL_MESHES = (
     "LightFProj",
 )
 
-# Not exported: Maxbox is an in-scene scale reference only.
+# Not exported: Maxbox / MaxBox is an in-scene scale reference only.
+# Matching is case-insensitive and ignores Blender duplicate suffixes (.001).
 EXPORT_HELPER_BLACKLIST = frozenset({
-    "Maxbox",
+    "maxbox",
 })
+
+
+def is_export_blacklisted(name):
+    """True if this object must never be written to the .3ds (any casing / .001)."""
+    base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
+    return base.casefold() in EXPORT_HELPER_BLACKLIST
 
 # Absolute world-space limits in millimeters (TMF Maxbox / engine space).
 ABS_Y_MM = (-3.0, 3.0)

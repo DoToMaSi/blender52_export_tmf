@@ -69,9 +69,9 @@ from .material_utils import (
     get_object_texture_reference,
 )
 from .tmf_validation import (
-    EXPORT_HELPER_BLACKLIST,
     OPTIONAL_MESHES,
     REQUIRED_MESHES,
+    is_export_blacklisted,
 )
 
 ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES) | frozenset(OPTIONAL_MESHES)
@@ -520,8 +520,8 @@ def _evaluated_mesh_copy(obj, depsgraph):
 def collect_mesh_data(context, use_selection):
     """Gather evaluated mesh data for allowlisted TMF car parts from the scene.
 
-    Only REQUIRED_MESHES and OPTIONAL_MESHES are exported. Maxbox is always
-    excluded (even when selected).
+    Only REQUIRED_MESHES and OPTIONAL_MESHES are exported. Maxbox / MaxBox is
+    always excluded (any casing, Blender .001 duplicates, even when selected).
     """
     scene = context.scene
     if use_selection:
@@ -535,7 +535,7 @@ def collect_mesh_data(context, use_selection):
     depsgraph = context.evaluated_depsgraph_get()
 
     for ob in objects:
-        if ob.name in EXPORT_HELPER_BLACKLIST:
+        if is_export_blacklisted(ob.name):
             continue
 
         if ob.name not in ALLOWED_MESH_NAMES:
@@ -546,6 +546,8 @@ def collect_mesh_data(context, use_selection):
             continue
 
         for ob_derived, _matrix_world in derived:
+            if is_export_blacklisted(ob_derived.name):
+                continue
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
                 continue
             if ob_derived.name not in ALLOWED_MESH_NAMES:
