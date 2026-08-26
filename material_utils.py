@@ -1,0 +1,127 @@
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+# ##### END GPL LICENSE BLOCK #####
+
+import bpy
+
+DIFFUSE_TEXTURE = "Diffuse.dds"
+DETAILS_TEXTURE = "Details.dds"
+
+
+def expected_texture_filename(object_name):
+    """Return the TMF texture filename expected for a given object name."""
+    if object_name.startswith("s"):
+        return DIFFUSE_TEXTURE
+    if object_name.startswith("d") or object_name.startswith("g"):
+        return DETAILS_TEXTURE
+    return None
+
+
+def get_principled_bsdf(material):
+    if material is None or material.node_tree is None:
+        return None
+    for node in material.node_tree.nodes:
+        if node.type == "BSDF_PRINCIPLED":
+            return node
+    return None
+
+
+def _input_value(bsdf, names, default):
+    if bsdf is None:
+        return default
+    for name in names:
+        sock = bsdf.inputs.get(name)
+        if sock is not None:
+            return sock.default_value
+    return default
+
+
+def get_material_export_data(material):
+    """Extract material colors and factors from the Principled BSDF node."""
+    bsdf = get_principled_bsdf(material)
+
+    base_color = _input_value(bsdf, ("Base Color",), (0.8, 0.8, 0.8, 1.0))
+    if len(base_color) == 3:
+        base_color = (base_color[0], base_color[1], base_color[2], 1.0)
+
+    roughness = _input_value(bsdf, ("Roughness",), 0.5)
+    specular = _input_value(bsdf, ("Specular IOR Level", "Specular"), 0.5)
+    alpha = _input_value(bsdf, ("Alpha",), 1.0)
+
+    tint = _input_value(bsdf, ("Tint", "Specular Tint"), (1.0, 1.0, 1.0, 1.0))
+    if len(tint) >= 3:
+        specular_color = (tint[0], tint[1], tint[2])
+    else:
+        specular_color = (1.0, 1.0, 1.0)
+
+    ambient = tuple(c * 0.2 for c in base_color[:3])
+
+    return {
+        "diffuse_color": base_color,
+        "ambient_color": ambient,
+        "specular_color": specular_color,
+        "roughness": roughness,
+        "specular_intensity": specular,
+        "alpha": alpha,
+    }
+
+
+def get_material_image(material):
+    """Find the first image texture linked to or placed in the material."""
+    if material is None or material.node_tree is None:
+        return None
+    for node in material.node_tree.nodes:
+        if node.type == "TEX_IMAGE" and node.image is not None:
+            return node.image
+    return None
+
+
+def get_mesh_uv_image(mesh):
+    """UV layers do not carry image references in modern Blender; use materials."""
+    return None
+
+
+def get_object_texture_reference(obj, mesh):
+    """Resolve the texture image and expected TMF filename for an object."""
+    expected = expected_texture_filename(obj.name)
+    image = get_mesh_uv_image(mesh)
+
+    if image is None and obj.data.materials:
+        for mat in obj.data.materials:
+            if mat is not None:
+                image = get_material_image(mat)
+                if image is not None:
+                    break
+
+    return expected, image
+
+
+def texture_reference_matches(obj):
+    """Check whether the object references the correct TMF texture filename."""
+    expected = expected_texture_filename(obj.name)
+    if expected is None:
+        return True, None
+
+    mesh = obj.data
+    if mesh is None or obj.type != "MESH":
+        return True, None
+
+    _, image = get_object_texture_reference(obj, mesh)
+    if image is None:
+        return False, f"{obj.name}: missing texture reference, expected {expected}"
+
+    basename = bpy.path.basename(image.filepath)
+    if not basename:
+        basename = image.name
+
+    if basename.lower() == expected.lower() or expected.lower() in basename.lower():
+        return True, None
+
+    return False, (
+        f"{obj.name}: texture '{basename}' does not match expected {expected}"
+    )

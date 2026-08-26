@@ -1,0 +1,23 @@
+schema_version = "1.0.0"
+
+id = "export_3ds_tmf"
+version = "2.0.0"
+name = "Export 3DS for TrackMania Forever"
+tagline = "Export validated 3DS car geometry for TrackMania"
+maintainer = "Douglas Tomacheski"
+type = "add-on"
+
+blender_version_min = "5.2.0"
+
+license = [
+  "SPDX:GPL-2.0-or-later",
+]
+
+copyright = [
+  "2008-2026 Glauco Bacchi, Campbell Barton, Bob Holcomb, Richard Lärkäng, Damien McGinnes, Mark Stijnman, Sergey Savkin, Douglas Tomacheski",
+]
+
+tags = ["Import-Export"]
+
+[permissions]
+files = "Export 3DS models to disk"

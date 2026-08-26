@@ -1,0 +1,92 @@
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+# ##### END GPL LICENSE BLOCK #####
+
+import time
+
+import bpy
+import bpy_extras
+
+from .exporter import cleanup_mesh_objects, collect_mesh_data, do_export
+from .tmf_validation import validate_export
+
+
+class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
+    """Export 3DS model for TrackMania Forever"""
+
+    bl_idname = "export_scene.tmf"
+    bl_label = "Export 3DS for TMF (.3ds)"
+    bl_options = {"PRESET"}
+
+    filename_ext = ".3ds"
+    filter_glob: bpy.props.StringProperty(
+        default="*.3ds",
+        options={"HIDDEN"},
+    )
+
+    use_selection: bpy.props.BoolProperty(
+        name="Selection Only",
+        description="Export selected objects only",
+        default=True,
+    )
+
+    poly_target: bpy.props.EnumProperty(
+        name="Poly Target",
+        description="Vertex budget for the exported car geometry",
+        items=(
+            ("HIGH", "High Poly", "Up to 100,000 vertices (MainBodyHigh.Solid.gbx)"),
+            ("LOW", "Low Poly", "Up to 3,600 vertices (MainBody.Solid.gbx)"),
+        ),
+        default="HIGH",
+    )
+
+    def execute(self, context):
+        filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
+        start_time = time.time()
+        print("\n_____START_____")
+
+        mesh_objects, empty_objects, material_dict = collect_mesh_data(
+            context,
+            self.use_selection,
+        )
+
+        validation = validate_export(
+            context,
+            mesh_objects,
+            empty_objects,
+            self.poly_target,
+        )
+        if not validation.ok:
+            for error in validation.errors:
+                self.report({"ERROR"}, error)
+            cleanup_mesh_objects(mesh_objects)
+            return {"CANCELLED"}
+
+        context.window.cursor_set("WAIT")
+        try:
+            do_export(context, filepath, mesh_objects, empty_objects, material_dict)
+        finally:
+            context.window.cursor_set("DEFAULT")
+
+        print(f"finished export in {time.time() - start_time:.3f} seconds")
+        print(filepath)
+        return {"FINISHED"}
+
+
+def menu_func(self, context):
+    self.layout.operator(Export_tmf.bl_idname, text="3DS for TMF (.3ds)")
+
+
+def register():
+    bpy.utils.register_class(Export_tmf)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func)
+
+
+def unregister():
+    bpy.utils.unregister_class(Export_tmf)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func)

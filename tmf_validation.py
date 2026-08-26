@@ -1,0 +1,189 @@
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+# ##### END GPL LICENSE BLOCK #####
+
+from dataclasses import dataclass, field
+
+from .material_utils import expected_texture_filename, texture_reference_matches
+
+REQUIRED_MESHES = (
+    "sBody",
+    "dBody",
+    "gBody",
+    "dFLWheel",
+    "sFLWheel",
+    "dFRWheel",
+    "sFRWheel",
+    "dRLWheel",
+    "sRLWheel",
+    "dRRWheel",
+    "sRRWheel",
+)
+
+REQUIRED_EMPTIES = (
+    "LightFL1",
+    "LightFR1",
+    "LightFL2",
+    "LightFR2",
+    "LightFL3",
+    "LightFR3",
+    "LightRL",
+    "LightRR",
+)
+
+MAX_BOX_MM = {
+    "x": 3.0,
+    "y": 6.0,
+    "z": 2.5,
+}
+
+VERTEX_LIMITS = {
+    "HIGH": 100_000,
+    "LOW": 3_600,
+}
+
+TRANSFORM_TOLERANCE = 1e-4
+MESH_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
+
+
+@dataclass
+class ValidationResult:
+    ok: bool = True
+    errors: list = field(default_factory=list)
+
+    def add_error(self, message):
+        self.ok = False
+        self.errors.append(message)
+
+
+def bu_to_mm(scene, value):
+    """Convert a Blender-unit distance to millimeters."""
+    return value * scene.unit_settings.scale_length * 1000.0
+
+
+def gather_export_objects(context, use_selection):
+    scene = context.scene
+    if use_selection:
+        return [ob for ob in scene.objects if ob.visible_get() and ob.select_get()]
+    return [ob for ob in scene.objects if ob.visible_get()]
+
+
+def _scale_is_identity(ob, tolerance=TRANSFORM_TOLERANCE):
+    return all(abs(s - 1.0) < tolerance for s in ob.scale)
+
+
+def _rotation_is_identity(ob, tolerance=TRANSFORM_TOLERANCE):
+    euler = ob.rotation_euler
+    return (
+        abs(euler.x) < tolerance
+        and abs(euler.y) < tolerance
+        and abs(euler.z) < tolerance
+    )
+
+
+def _mesh_world_bounds_mm(context, obj):
+    depsgraph = context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(depsgraph)
+    mesh = obj_eval.to_mesh(preserve_all_data_layers=True)
+    try:
+        world_matrix = obj_eval.matrix_world
+        min_co = [float("inf")] * 3
+        max_co = [float("-inf")] * 3
+        for vert in mesh.vertices:
+            co = world_matrix @ vert.co
+            for i in range(3):
+                min_co[i] = min(min_co[i], co[i])
+                max_co[i] = max(max_co[i], co[i])
+        scene = context.scene
+        return {
+            "x": bu_to_mm(scene, max_co[0] - min_co[0]),
+            "y": bu_to_mm(scene, max_co[1] - min_co[1]),
+            "z": bu_to_mm(scene, max_co[2] - min_co[2]),
+        }
+    finally:
+        obj_eval.to_mesh_clear()
+
+
+def count_export_vertices(context, mesh_objects):
+    """Count vertices the same way the exporter will after triangulation/UV split."""
+    from .exporter import count_mesh_export_vertices
+
+    total = 0
+    for _ob, mesh in mesh_objects:
+        total += count_mesh_export_vertices(mesh)
+    return total
+
+
+def validate_export(context, mesh_objects, empty_objects, poly_target):
+    result = ValidationResult()
+    export_objects = mesh_objects + [(ob, None) for ob in empty_objects]
+
+    mesh_names = {ob.name for ob, _ in mesh_objects}
+    empty_names = {ob.name for ob in empty_objects}
+    all_names = mesh_names | empty_names
+
+    for required in REQUIRED_MESHES:
+        if required not in mesh_names:
+            result.add_error(f"Missing required mesh object: {required}")
+
+    for required in REQUIRED_EMPTIES:
+        if required not in empty_names:
+            result.add_error(f"Missing required empty helper: {required}")
+        elif required in empty_names:
+            ob = next(ob for ob in empty_objects if ob.name == required)
+            if ob.type != "EMPTY":
+                result.add_error(f"{required}: must be an Empty object, found {ob.type}")
+
+    for ob, _mesh in mesh_objects:
+        if ob.name not in REQUIRED_MESHES:
+            continue
+
+        if not _scale_is_identity(ob):
+            result.add_error(
+                f"{ob.name}: unapplied scale {tuple(round(s, 4) for s in ob.scale)} "
+                f"(Apply Scale before export)"
+            )
+
+        if not _rotation_is_identity(ob):
+            rot = tuple(round(r, 4) for r in ob.rotation_euler)
+            result.add_error(
+                f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
+            )
+
+        bounds = _mesh_world_bounds_mm(context, ob)
+        for axis, limit in MAX_BOX_MM.items():
+            if bounds[axis] > limit + TRANSFORM_TOLERANCE:
+                result.add_error(
+                    f"{ob.name}: {axis}-axis size {bounds[axis]:.4f} mm "
+                    f"exceeds max {limit} mm"
+                )
+
+        if expected_texture_filename(ob.name) is not None:
+            ok, message = texture_reference_matches(ob)
+            if not ok:
+                result.add_error(message)
+
+    vertex_limit = VERTEX_LIMITS.get(poly_target, VERTEX_LIMITS["HIGH"])
+    vertex_count = count_export_vertices(context, mesh_objects)
+    if vertex_count > vertex_limit:
+        result.add_error(
+            f"Vertex count {vertex_count} exceeds {poly_target} poly limit ({vertex_limit})"
+        )
+
+    if not mesh_objects and not empty_objects:
+        result.add_error("No objects selected for export")
+
+    # Hint for near-miss names in the export set
+    for name in sorted(all_names):
+        for required in REQUIRED_MESHES + REQUIRED_EMPTIES:
+            if required not in all_names and name.lower() == required.lower():
+                result.add_error(
+                    f"Object '{name}' looks like '{required}' but spelling/case differs"
+                )
+
+    return result
