@@ -73,9 +73,106 @@ from .tmf_validation import (
     OPTIONAL_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
+    to_tmf_mm,
 )
 
 ALLOWED_MESH_NAMES = frozenset(REQUIRED_MESHES) | frozenset(OPTIONAL_MESHES)
+
+
+def forced_material_name(object_name, material=None):
+    """Canonical 3DS material name for TMF projector / body maps."""
+    if object_name == "ProjShad":
+        return "ProjShad"
+    if object_name.startswith("LightFProj"):
+        return "LightFProj"
+    if material is not None:
+        return material.name
+    expected = expected_texture_filename(object_name)
+    if expected:
+        return expected.rsplit(".", 1)[0]
+    return None
+
+
+
+def _fmt_vec(vec, digits=4):
+    return f"({vec[0]:.{digits}f}, {vec[1]:.{digits}f}, {vec[2]:.{digits}f})"
+
+
+def _vlog(verbose, message):
+    if verbose:
+        print(message)
+
+
+def _mesh_world_bounds(ob, mesh):
+    """Axis-aligned world bounds from local verts + matrix_world (export space)."""
+    try:
+        verts = mesh.vertices
+    except (AttributeError, ReferenceError):
+        return None
+    if not verts:
+        return None
+
+    matrix = ob.matrix_world
+    xs, ys, zs = [], [], []
+    for vert in verts:
+        co = matrix @ vert.co
+        xs.append(to_tmf_mm(co.x))
+        ys.append(to_tmf_mm(co.y))
+        zs.append(to_tmf_mm(co.z))
+    return {
+        "min": (min(xs), min(ys), min(zs)),
+        "max": (max(xs), max(ys), max(zs)),
+        "size": (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs)),
+    }
+
+
+def _material_slot_names(ob, mesh):
+    names = []
+    for mat in mesh.materials if mesh is not None else ():
+        names.append(mat.name if mat else "<empty slot>")
+    if not names and ob.type == "MESH" and ob.data is not None:
+        for mat in ob.data.materials:
+            names.append(mat.name if mat else "<empty slot>")
+    return names
+
+
+def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK"):
+    """Print one verbose line block for a collected / written object."""
+    if not verbose:
+        return
+
+    dims = ob.dimensions
+    loc = ob.location
+    rot = ob.rotation_euler
+    scale = ob.scale
+    parent = ob.parent.name if ob.parent else "<none>"
+    mats = _material_slot_names(ob, mesh)
+    expected = expected_texture_filename(ob.name)
+    image_name = None
+    if image is not None:
+        image_name = bpy.path.basename(image.filepath) or image.name
+
+    n_verts = len(mesh.vertices) if mesh is not None else 0
+    n_tris = len(mesh.loop_triangles) if mesh is not None else 0
+    bounds = _mesh_world_bounds(ob, mesh) if mesh is not None else None
+
+    print(f"  [{status}] {ob.name}  type={ob.type}")
+    print(f"         parent={parent}")
+    print(f"         location={_fmt_vec(loc)}  rotation={_fmt_vec(rot)}  scale={_fmt_vec(scale)}")
+    print(f"         dimensions={_fmt_vec(dims)}  verts={n_verts}  tris={n_tris}")
+    if bounds is not None:
+        print(
+            f"         world_bounds min={_fmt_vec(bounds['min'])} "
+            f"max={_fmt_vec(bounds['max'])} size={_fmt_vec(bounds['size'])}"
+        )
+    print(f"         materials={mats if mats else '<none>'}")
+    print(
+        f"         texture_map={texture_filename or '<none>'}  "
+        f"expected={expected or '<none>'}  "
+        f"blender_image={image_name or '<none>'}"
+    )
+    print(f"         kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(loc)}")
+
 
 
 class tri_wrapper:
@@ -117,11 +214,13 @@ def make_material_texture_chunk(chunk_id, texture_filename):
     return mat_sub
 
 
-def make_material_chunk(material, texture_filename=None):
+def make_material_chunk(material, texture_filename=None, material_name=None):
     material_chunk = _3ds_chunk(MATERIAL)
     name = _3ds_chunk(MATNAME)
 
-    if material:
+    if material_name:
+        name_str = material_name
+    elif material:
         name_str = material.name
     elif texture_filename:
         name_str = texture_filename.rsplit(".", 1)[0]
@@ -231,7 +330,7 @@ def count_mesh_export_vertices(mesh):
         return 0
 
 
-def make_faces_chunk(tri_list, mesh, material_dict, fallback_mat_name=None):
+def make_faces_chunk(tri_list, mesh, material_dict, fallback_mat_name=None, force_mat_name=None):
     materials = mesh.materials
     face_chunk = _3ds_chunk(OBJECT_FACES)
     face_list = _3ds_array()
@@ -240,12 +339,15 @@ def make_faces_chunk(tri_list, mesh, material_dict, fallback_mat_name=None):
     obj_material_names = []
     for m in materials:
         if m:
-            obj_material_names.append(_3ds_string(sane_name(m.name)))
+            mat_name = force_mat_name or m.name
+            obj_material_names.append(_3ds_string(sane_name(mat_name)))
             obj_material_faces.append(_3ds_array())
 
-    use_fallback = len(obj_material_names) == 0 and fallback_mat_name
+    use_fallback = len(obj_material_names) == 0 and (fallback_mat_name or force_mat_name)
     if use_fallback:
-        obj_material_names.append(_3ds_string(sane_name(fallback_mat_name)))
+        obj_material_names.append(
+            _3ds_string(sane_name(force_mat_name or fallback_mat_name))
+        )
         obj_material_faces.append(_3ds_array())
 
     n_materials = len(obj_material_names)
@@ -300,8 +402,15 @@ def make_mesh_chunk(mesh, material_dict, ob, name_to_id, name_to_scale, name_to_
     fallback_mat = expected_texture_filename(ob.name)
     if fallback_mat:
         fallback_mat = fallback_mat.rsplit(".", 1)[0]
+    force_mat = forced_material_name(ob.name)
     mesh_chunk.add_subchunk(
-        make_faces_chunk(tri_list, mesh, material_dict, fallback_mat)
+        make_faces_chunk(
+            tri_list,
+            mesh,
+            material_dict,
+            fallback_mat,
+            force_mat_name=force_mat,
+        )
     )
 
     mesh1 = _3ds_chunk(OBJECT_TRANS_MATRIX)
@@ -489,14 +598,22 @@ def re_create_derived_objects(context, ob):
 def _register_materials(material_dict, ob, mesh, texture_filename):
     mat_ls = mesh.materials
     mat_ls_len = len(mat_ls)
+    force_name = forced_material_name(ob.name)
 
     if mat_ls:
         for mat in mat_ls:
             if mat:
-                material_dict.setdefault((mat.name, texture_filename), (mat, texture_filename))
+                key_name = force_name or mat.name
+                material_dict.setdefault(
+                    (key_name, texture_filename),
+                    (mat, texture_filename, key_name),
+                )
     elif texture_filename:
-        stem = texture_filename.rsplit(".", 1)[0]
-        material_dict.setdefault((stem, texture_filename), (None, texture_filename))
+        stem = force_name or texture_filename.rsplit(".", 1)[0]
+        material_dict.setdefault(
+            (stem, texture_filename),
+            (None, texture_filename, stem),
+        )
 
     if mat_ls_len:
         for face in mesh.loop_triangles:
@@ -533,7 +650,7 @@ def _evaluated_mesh_copy(obj, depsgraph):
         return None
 
 
-def collect_mesh_data(context, use_selection):
+def collect_mesh_data(context, use_selection, verbose=False):
     """Gather evaluated mesh data for allowlisted TMF car parts from the scene.
 
     Only REQUIRED_MESHES and OPTIONAL_MESHES are exported. Maxbox / MaxBox is
@@ -555,32 +672,72 @@ def collect_mesh_data(context, use_selection):
 
     mesh_objects = []
     material_dict = {}
+    # texture_filename / image keyed by object name for verbose write log
+    texture_info = {}
 
     depsgraph = context.evaluated_depsgraph_get()
 
+    _vlog(verbose, "----- Collect -----")
+    _vlog(
+        verbose,
+        f"Candidates: {len(objects)} visible"
+        f"{' (selection + required)' if use_selection else ''}",
+    )
+
     for ob in objects:
         if is_export_blacklisted(ob.name):
+            _vlog(verbose, f"  [SKIP] {ob.name}  reason=blacklisted (MaxBox guide)")
+            continue
+
+        if ob.type == "EMPTY":
+            if ob.name in ALLOWED_MESH_NAMES or ob.name in OPTIONAL_MESHES:
+                _vlog(
+                    verbose,
+                    f"  [SKIP] {ob.name}  reason=Empty not supported "
+                    f"(use a tiny mesh helper instead)  loc={_fmt_vec(ob.location)}",
+                )
+            else:
+                _vlog(verbose, f"  [SKIP] {ob.name}  reason=Empty (not exported)")
             continue
 
         if ob.name not in ALLOWED_MESH_NAMES:
+            _vlog(verbose, f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}")
             continue
 
         derived = re_create_derived_objects(context, ob)
         if derived is None:
+            _vlog(verbose, f"  [SKIP] {ob.name}  reason=instancer child / no derived")
             continue
 
         for ob_derived, _matrix_world in derived:
             if is_export_blacklisted(ob_derived.name):
+                _vlog(
+                    verbose,
+                    f"  [SKIP] {ob_derived.name}  reason=blacklisted (derived)",
+                )
                 continue
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
+                _vlog(
+                    verbose,
+                    f"  [SKIP] {ob_derived.name}  reason=unsupported type "
+                    f"{ob_derived.type}",
+                )
                 continue
             if ob_derived.name not in ALLOWED_MESH_NAMES:
+                _vlog(
+                    verbose,
+                    f"  [SKIP] {ob_derived.name}  reason=not on allowlist (derived)",
+                )
                 continue
 
             data = _evaluated_mesh_copy(ob_derived, depsgraph)
             if data is None or len(data.vertices) == 0:
                 if data is not None:
                     bpy.data.meshes.remove(data)
+                _vlog(
+                    verbose,
+                    f"  [FAIL] {ob_derived.name}  reason=no evaluable mesh geometry",
+                )
                 continue
 
             # Keep vertices in local/object space. World location/rotation are written
@@ -589,15 +746,26 @@ def collect_mesh_data(context, use_selection):
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 
-            texture_filename, _image = get_object_texture_reference(ob_derived, data)
+            texture_filename, image = get_object_texture_reference(ob_derived, data)
+            texture_info[ob_derived.name] = (texture_filename, image)
             _register_materials(material_dict, ob_derived, data, texture_filename)
+            log_export_object(
+                ob_derived,
+                data,
+                texture_filename,
+                image,
+                verbose,
+                status="COLLECTED",
+            )
 
-    return mesh_objects, material_dict
+    _vlog(verbose, f"Collected {len(mesh_objects)} mesh object(s) for write")
+    return mesh_objects, material_dict, texture_info
 
 
-def do_export(context, filename, mesh_objects, material_dict):
+def do_export(context, filename, mesh_objects, material_dict, verbose=False, texture_info=None):
     """Save the Blender scene to a 3DS file."""
     reset_name_tables()
+    texture_info = texture_info or {}
 
     primary = _3ds_chunk(PRIMARY)
     version_chunk = _3ds_chunk(VERSION)
@@ -607,9 +775,22 @@ def do_export(context, filename, mesh_objects, material_dict):
     object_info = _3ds_chunk(OBJECTINFO)
     kfdata = make_kfdata(0, 100, 0, 1)
 
+    _vlog(verbose, "----- Materials -----")
     for mat_and_texture in material_dict.values():
-        material, texture_filename = mat_and_texture
-        object_info.add_subchunk(make_material_chunk(material, texture_filename))
+        if len(mat_and_texture) == 3:
+            material, texture_filename, mat_name = mat_and_texture
+        else:
+            material, texture_filename = mat_and_texture
+            mat_name = material.name if material else (
+                texture_filename.rsplit(".", 1)[0] if texture_filename else "None"
+            )
+        _vlog(
+            verbose,
+            f"  [MAT] {mat_name}  map={texture_filename or '<none>'}",
+        )
+        object_info.add_subchunk(
+            make_material_chunk(material, texture_filename, material_name=mat_name)
+        )
 
     mscale = _3ds_chunk(MASTERSCALE)
     mscale.add_variable("scale", _3ds_float(1))
@@ -626,24 +807,33 @@ def do_export(context, filename, mesh_objects, material_dict):
         name_to_pos[ob.name] = ob.location
         name_to_rot[ob.name] = ob.rotation_euler.to_quaternion().inverted()
 
+    _vlog(verbose, "----- Write .3ds -----")
     for ob, blender_mesh in mesh_objects:
-        object_chunk = _3ds_chunk(OBJECT)
-        object_chunk.add_variable("name", _3ds_string(sane_name(ob.name)))
-        object_chunk.add_subchunk(
-            make_mesh_chunk(
-                blender_mesh,
-                material_dict,
-                ob,
-                name_to_id,
-                name_to_scale,
-                name_to_pos,
-                name_to_rot,
+        try:
+            object_chunk = _3ds_chunk(OBJECT)
+            object_chunk.add_variable("name", _3ds_string(sane_name(ob.name)))
+            object_chunk.add_subchunk(
+                make_mesh_chunk(
+                    blender_mesh,
+                    material_dict,
+                    ob,
+                    name_to_id,
+                    name_to_scale,
+                    name_to_pos,
+                    name_to_rot,
+                )
             )
-        )
-        object_info.add_subchunk(object_chunk)
-        kfdata.add_subchunk(
-            make_kf_obj_node(ob, name_to_id, name_to_scale, name_to_pos, name_to_rot)
-        )
+            object_info.add_subchunk(object_chunk)
+            kfdata.add_subchunk(
+                make_kf_obj_node(ob, name_to_id, name_to_scale, name_to_pos, name_to_rot)
+            )
+            tex, image = texture_info.get(ob.name, (None, None))
+            if tex is None:
+                tex, image = get_object_texture_reference(ob, blender_mesh)
+            log_export_object(ob, blender_mesh, tex, image, verbose, status="WRITTEN")
+        except Exception as exc:
+            _vlog(verbose, f"  [FAIL] {ob.name}  reason=write error: {exc}")
+            raise
 
     primary.add_subchunk(object_info)
     primary.add_subchunk(kfdata)
@@ -654,6 +844,7 @@ def do_export(context, filename, mesh_objects, material_dict):
 
     exported = ", ".join(sorted(name_to_id.keys()))
     print(f"Exported {len(name_to_id)} objects: {exported}")
+    _vlog(verbose, f"File written: {filename}")
 
     reset_name_tables()
     return True

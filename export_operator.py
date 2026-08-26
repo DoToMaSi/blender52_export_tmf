@@ -59,6 +59,17 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         default=True,
     )
 
+    use_verbose: bpy.props.BoolProperty(
+        name="Verbose Log",
+        description=(
+            "Print a detailed System Console report for every allowlisted / skipped object: "
+            "collect vs write status, dimensions, world bounds, transforms, material slots, "
+            "and texture map names (expected vs Blender image). Open Window → Toggle System "
+            "Console to read the log"
+        ),
+        default=False,
+    )
+
     poly_target: bpy.props.EnumProperty(
         name="Poly Target",
         description="Vertex budget for the exported car geometry (used by Strict validation)",
@@ -72,13 +83,21 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     def execute(self, context):
         filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
         start_time = time.time()
+        verbose = self.use_verbose
         print(f"\n_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
+        if verbose:
+            print(
+                f"Options: selection={self.use_selection}  "
+                f"strict={self.use_strict}  poly_target={self.poly_target}  "
+                f"verbose={verbose}"
+            )
 
         mesh_objects = []
         try:
-            mesh_objects, material_dict = collect_mesh_data(
+            mesh_objects, material_dict, texture_info = collect_mesh_data(
                 context,
                 self.use_selection,
+                verbose=verbose,
             )
 
             if not mesh_objects:
@@ -92,6 +111,10 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     self.poly_target,
                 )
                 if not validation.ok:
+                    if verbose:
+                        print("----- Strict validation FAILED -----")
+                        for error in validation.errors:
+                            print(f"  [ERR] {error}")
                     for error in validation.errors[:8]:
                         self.report({"ERROR"}, error)
                     if len(validation.errors) > 8:
@@ -100,6 +123,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                             f"...and {len(validation.errors) - 8} more validation errors",
                         )
                     return {"CANCELLED"}
+                if verbose:
+                    print("----- Strict validation OK -----")
             else:
                 self.report(
                     {"WARNING"},
@@ -108,7 +133,14 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
             context.window.cursor_set("WAIT")
             try:
-                do_export(context, filepath, mesh_objects, material_dict)
+                do_export(
+                    context,
+                    filepath,
+                    mesh_objects,
+                    material_dict,
+                    verbose=verbose,
+                    texture_info=texture_info,
+                )
             finally:
                 context.window.cursor_set("DEFAULT")
         except Exception as exc:
@@ -122,6 +154,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         print(f"[{ADDON_NAME} v{ADDON_VERSION}] finished export in {elapsed:.3f} seconds")
         print(f"Objects ({len(names)}): {', '.join(names)}")
         print(filepath)
+        if verbose:
+            print("_____END VERBOSE_____")
         self.report(
             {"INFO"},
             f"Exported {len(names)} meshes — {ADDON_NAME} v{ADDON_VERSION}",

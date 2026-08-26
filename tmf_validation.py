@@ -59,6 +59,12 @@ def is_export_blacklisted(name):
     base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
     return base.casefold() in EXPORT_HELPER_BLACKLIST
 
+# Projector meshes must keep a usable AABB or TM reports
+# "Quality 2's bounding box (0 doesn't fit...)".
+MIN_PROJECTOR_THICKNESS = 0.05
+MIN_LIGHTFPROJ_EXTENT = 0.5
+MIN_PROJSHAD_FOOTPRINT = 1.0
+
 # Absolute world-space limits in millimeters (TMF Maxbox / engine space).
 # These are real engine limits (~6×3×2.5 mm box) — NOT meters×1000.
 # A real-world bumper at 1.5 m must be authored at ~1.5 mm (0.1% scale).
@@ -219,6 +225,46 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
     return errors
 
 
+def check_projector_geometry(ob, mesh):
+    """Catch near-zero projector AABBs that make the TM compiler report bbox (0)."""
+    errors = []
+    dims = sorted(abs(d) for d in ob.dimensions)
+    thin, mid, long = dims[0], dims[1], dims[2]
+
+    if ob.name == "ProjShad":
+        if thin < MIN_PROJECTOR_THICKNESS:
+            errors.append(
+                f"ProjShad: thickness {thin:.4f} mm is near zero "
+                f"(need >= {MIN_PROJECTOR_THICKNESS} mm). A paper-thin plane makes "
+                f"TrackMania report \"Quality 2's bounding box (0...\". "
+                f"Extrude the shadow mesh slightly on Z"
+            )
+        if mid < MIN_PROJSHAD_FOOTPRINT or long < MIN_PROJSHAD_FOOTPRINT:
+            errors.append(
+                f"ProjShad: footprint {mid:.4f} x {long:.4f} mm is too small "
+                f"(need both axes >= {MIN_PROJSHAD_FOOTPRINT} mm)"
+            )
+
+    if ob.name == "LightFProj":
+        if long < MIN_LIGHTFPROJ_EXTENT:
+            errors.append(
+                f"LightFProj: extent {long:.4f} mm is too small "
+                f"(need >= {MIN_LIGHTFPROJ_EXTENT} mm). Use a flat headlight "
+                f"projection plane in front of the car, not a tiny helper cube"
+            )
+        if thin < MIN_PROJECTOR_THICKNESS and mid < MIN_LIGHTFPROJ_EXTENT:
+            errors.append(
+                f"LightFProj: looks collapsed ({_fmt_dims(ob.dimensions)}); "
+                f"expected a readable projection plane"
+            )
+
+    return errors
+
+
+def _fmt_dims(dims):
+    return f"({dims[0]:.4f}, {dims[1]:.4f}, {dims[2]:.4f})"
+
+
 def count_export_vertices(mesh_objects):
     """Count vertices the same way the exporter will after triangulation/UV split."""
     from .exporter import count_mesh_export_vertices
@@ -273,6 +319,10 @@ def validate_export(context, mesh_objects, poly_target):
                 result.add_error(f"{ob.name}: {msg}")
         except Exception as exc:
             result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
+
+        if ob.name in {"ProjShad", "LightFProj"}:
+            for msg in check_projector_geometry(ob, mesh):
+                result.add_error(msg)
 
     # Engine anchors suspension / tires from sBody origin.
     for ob, _mesh in mesh_objects:
