@@ -40,12 +40,12 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         description=(
             "Enforce TrackMania Forever / Nations / United car-geometry rules before writing "
             "the .3ds file. When enabled, export is blocked unless all of the following pass: "
-            "exact required mesh names (sBody, dBody, gBody, and all eight wheel parts), "
-            "exact required light Empties (LightFL1–3, LightFR1–3, LightRL, LightRR), "
-            "applied scale and rotation on required meshes (location may remain for pivots), "
-            "per-object world size within the max box (3 mm X × 6 mm Y × 2.5 mm Z), "
-            "vertex count within the selected Poly Target limit, and Diffuse.dds / Details.dds "
-            "texture references on paintable vs detail parts. "
+            "exact required mesh names (sBody, dBody, gBody, and all eight wheel parts "
+            "d/s FL/FR/RL/RR), applied scale and rotation on those meshes "
+            "(location may remain for pivots), per-object world size within the max box "
+            "(3 mm X × 6 mm Y × 2.5 mm Z), vertex count within the selected Poly Target limit, "
+            "and Diffuse.dds / Details.dds texture references on paintable vs detail parts. "
+            "Light Empties (LightFL1–3, LightFR1–3, LightRL, LightRR) are optional. "
             "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
             "silently on invalid files"
         ),

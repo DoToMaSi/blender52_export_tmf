@@ -25,7 +25,8 @@ REQUIRED_MESHES = (
     "sRRWheel",
 )
 
-REQUIRED_EMPTIES = (
+# Optional light helpers (exported when present; not required for Strict validation).
+OPTIONAL_LIGHT_EMPTIES = (
     "LightFL1",
     "LightFR1",
     "LightFL2",
@@ -89,14 +90,25 @@ def _rotation_is_identity(ob, tolerance=TRANSFORM_TOLERANCE):
     )
 
 
+def _safe_mesh_vertices(mesh):
+    """Return mesh.vertices, or None if the datablock is missing/invalid."""
+    if mesh is None:
+        return None
+    try:
+        return mesh.vertices
+    except (AttributeError, ReferenceError, TypeError):
+        return None
+
+
 def mesh_bounds_mm(scene, mesh):
     """Axis-aligned size of a mesh already transformed into world space."""
-    if mesh is None or len(mesh.vertices) == 0:
+    verts = _safe_mesh_vertices(mesh)
+    if verts is None or len(verts) == 0:
         return None
 
     min_co = [float("inf")] * 3
     max_co = [float("-inf")] * 3
-    for vert in mesh.vertices:
+    for vert in verts:
         co = vert.co
         for i in range(3):
             min_co[i] = min(min_co[i], co[i])
@@ -133,19 +145,19 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
         if required not in mesh_names:
             result.add_error(f"Missing required mesh object: {required}")
 
-    for required in REQUIRED_EMPTIES:
-        if required not in empty_names:
-            result.add_error(f"Missing required empty helper: {required}")
-        else:
-            ob = next(ob for ob in empty_objects if ob.name == required)
-            if ob.type != "EMPTY":
-                result.add_error(f"{required}: must be an Empty object, found {ob.type}")
+    for name in OPTIONAL_LIGHT_EMPTIES:
+        if name not in empty_names:
+            continue
+        ob = next(ob for ob in empty_objects if ob.name == name)
+        if ob.type != "EMPTY":
+            result.add_error(f"{name}: light helpers must be Empty objects, found {ob.type}")
 
     for ob, mesh in mesh_objects:
         if ob.name not in REQUIRED_MESHES:
             continue
 
-        if mesh is None or len(mesh.vertices) == 0:
+        verts = _safe_mesh_vertices(mesh)
+        if verts is None or len(verts) == 0:
             result.add_error(f"{ob.name}: has no evaluable mesh geometry")
             continue
 
@@ -161,7 +173,12 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 f"{ob.name}: unapplied rotation {rot} (Apply Rotation before export)"
             )
 
-        bounds = mesh_bounds_mm(scene, mesh)
+        try:
+            bounds = mesh_bounds_mm(scene, mesh)
+        except Exception as exc:
+            result.add_error(f"{ob.name}: bounding box failed ({exc})")
+            continue
+
         if bounds is None:
             result.add_error(f"{ob.name}: could not compute bounding box")
             continue
@@ -179,7 +196,11 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
                 result.add_error(message)
 
     vertex_limit = VERTEX_LIMITS.get(poly_target, VERTEX_LIMITS["HIGH"])
-    vertex_count = count_export_vertices(mesh_objects)
+    try:
+        vertex_count = count_export_vertices(mesh_objects)
+    except Exception as exc:
+        result.add_error(f"Vertex count failed ({exc})")
+        vertex_count = 0
     if vertex_count > vertex_limit:
         result.add_error(
             f"Vertex count {vertex_count} exceeds {poly_target} poly limit ({vertex_limit})"
@@ -189,7 +210,7 @@ def validate_export(context, mesh_objects, empty_objects, poly_target):
         result.add_error("No objects selected for export")
 
     for name in sorted(all_names):
-        for required in REQUIRED_MESHES + REQUIRED_EMPTIES:
+        for required in REQUIRED_MESHES + OPTIONAL_LIGHT_EMPTIES:
             if required not in all_names and name.lower() == required.lower():
                 result.add_error(
                     f"Object '{name}' looks like '{required}' but spelling/case differs"

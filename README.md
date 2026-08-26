@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.0.2.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.0.4.zip`.
 
 ### Development (symlink)
 
@@ -68,11 +68,11 @@ Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 
 Wheel suffixes: `FL`, `FR`, `RL`, `RR`.
 
-### Empty helpers (exact spelling)
+### Empty helpers (optional)
 
 `LightFL1`, `LightFR1`, `LightFL2`, `LightFR2`, `LightFL3`, `LightFR3`, `LightRL`, `LightRR`
 
-Optional: suspension parts (`dxxHub`, `dxxArmTop`, …), `pPilHead`, `ProjShad`, `LightFProj`.
+Exported when present; not required by Strict validation. If present, they must be Empty objects.
 
 ## Pre-export checklist
 

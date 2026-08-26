@@ -212,11 +212,16 @@ def remove_face_uv(verts, tri_list):
 
 
 def count_mesh_export_vertices(mesh):
-    tri_list = extract_triangles(mesh)
-    if mesh.uv_layers:
-        vert_array, _uv_array, _tri_list = remove_face_uv(mesh.vertices, tri_list)
-        return len(vert_array.values)
-    return len(mesh.vertices)
+    if mesh is None:
+        return 0
+    try:
+        tri_list = extract_triangles(mesh)
+        if mesh.uv_layers:
+            vert_array, _uv_array, _tri_list = remove_face_uv(mesh.vertices, tri_list)
+            return len(vert_array.values)
+        return len(mesh.vertices)
+    except (AttributeError, ReferenceError, TypeError, RuntimeError):
+        return 0
 
 
 def make_faces_chunk(tri_list, mesh, material_dict):
