@@ -58,10 +58,10 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_verbose: bpy.props.BoolProperty(
         name="Verbose Log",
         description=(
-            "Print a detailed System Console report for every allowlisted / skipped object: "
-            "collect vs write status, dimensions, world bounds, transforms, material slots, "
-            "and texture map names (expected vs Blender image). Open Window → Toggle System "
-            "Console to read the log"
+            "Write a detailed System Console report and a sidecar .tmf-export.log next to "
+            "the .3ds: per-object transforms/bounds, exact 3DS material names + mapfiles, "
+            "face material refs, 2.79-style name comparison, and a fix checklist. "
+            "Open Window → Toggle System Console"
         ),
         default=True,
     )
@@ -80,20 +80,26 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
         start_time = time.time()
         verbose = self.use_verbose
+        log_lines = []
         print(f"\n_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
         if verbose:
-            print(
+            header = (
                 f"Options: selection={self.use_selection}  "
                 f"strict={self.use_strict}  poly_target={self.poly_target}  "
                 f"verbose={verbose}"
             )
+            print(header)
+            log_lines.append(f"_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
+            log_lines.append(header)
 
         mesh_objects = []
+        empty_objects = []
         try:
             mesh_objects, empty_objects, material_dict, texture_info = collect_mesh_data(
                 context,
                 self.use_selection,
                 verbose=verbose,
+                log_lines=log_lines,
             )
 
             if not mesh_objects and not empty_objects:
@@ -109,8 +115,11 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 if not validation.ok:
                     if verbose:
                         print("----- Strict validation FAILED -----")
+                        log_lines.append("----- Strict validation FAILED -----")
                         for error in validation.errors:
-                            print(f"  [ERR] {error}")
+                            line = f"  [ERR] {error}"
+                            print(line)
+                            log_lines.append(line)
                     for error in validation.errors[:8]:
                         self.report({"ERROR"}, error)
                     if len(validation.errors) > 8:
@@ -121,6 +130,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     return {"CANCELLED"}
                 if verbose:
                     print("----- Strict validation OK -----")
+                    log_lines.append("----- Strict validation OK -----")
             else:
                 self.report(
                     {"WARNING"},
@@ -137,6 +147,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     material_dict,
                     verbose=verbose,
                     texture_info=texture_info,
+                    log_lines=log_lines,
                 )
             finally:
                 context.window.cursor_set("DEFAULT")
@@ -153,6 +164,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         print(filepath)
         if verbose:
             print("_____END VERBOSE_____")
+            log_path = filepath.rsplit(".", 1)[0] + ".tmf-export.log"
+            self.report({"INFO"}, f"Verbose log: {log_path}")
         self.report(
             {"INFO"},
             f"Exported {len(names)} objects — {ADDON_NAME} v{ADDON_VERSION}",

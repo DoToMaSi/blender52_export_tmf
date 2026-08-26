@@ -93,14 +93,96 @@ def forced_material_name(object_name, material=None):
     return None
 
 
+def resolve_3ds_material_binding(ob, mesh, texture_filename, image=None):
+    """
+    Compute the exact MATERIAL / OBJECT_MATERIAL / MAPFILE strings written to .3ds,
+    plus a 2.79-style name for comparison and diagnostic WARN flags.
+    """
+    slots = _material_slot_names(ob, mesh)
+    primary_mat = None
+    if mesh is not None:
+        for mat in mesh.materials:
+            if mat is not None:
+                primary_mat = mat
+                break
+
+    force = forced_material_name(ob.name, primary_mat)
+    if force:
+        mat_name = force
+    elif primary_mat is not None:
+        mat_name = primary_mat.name
+    elif texture_filename:
+        mat_name = texture_filename.rsplit(".", 1)[0]
+    else:
+        mat_name = None
+
+    image_name = None
+    if image is not None:
+        image_name = bpy.path.basename(image.filepath) or image.name
+
+    expected = expected_texture_filename(ob.name)
+    mapfile = texture_filename
+
+    # 2.79 face-UV convention: material chunk name = mat.name + image.name
+    legacy_279 = None
+    if primary_mat is not None or image_name:
+        legacy_279 = (primary_mat.name if primary_mat else "None")
+        if image_name:
+            legacy_279 += image_name
+
+    face_names = []
+    if mesh is not None:
+        for mat in mesh.materials:
+            if mat is None:
+                continue
+            face_names.append(forced_material_name(ob.name, mat) or mat.name)
+    if not face_names and mat_name:
+        face_names = [mat_name]
+
+    has_uv = bool(mesh and mesh.uv_layers)
+
+    warns = []
+    if expected and not mapfile:
+        warns.append(f"missing mapfile (expected {expected})")
+    if expected and mapfile and mapfile.casefold() != expected.casefold():
+        warns.append(f"mapfile '{mapfile}' != expected '{expected}'")
+    if mat_name and face_names and mat_name not in face_names:
+        warns.append(
+            f"library mat '{mat_name}' not in face refs {face_names} "
+            f"(TM may miss the texture bind)"
+        )
+    if not has_uv and ob.name in REQUIRED_MESHES:
+        warns.append("no UV layer")
+    if not slots and ob.name in REQUIRED_MESHES:
+        warns.append("no material slots (using synthetic/fallback mat name)")
+    if legacy_279 and mat_name and sane_name(legacy_279) != sane_name(mat_name):
+        warns.append(
+            f"differs from 2.79-style name '{sane_name(legacy_279)}' "
+            f"(we write '{sane_name(mat_name)}')"
+        )
+
+    return {
+        "blender_slots": slots,
+        "blender_image": image_name,
+        "expected_map": expected,
+        "3ds_mat_name": sane_name(mat_name) if mat_name else None,
+        "3ds_mapfile": sane_name(mapfile) if mapfile else None,
+        "face_mat_names": [sane_name(n) for n in face_names],
+        "legacy_279_name": sane_name(legacy_279) if legacy_279 else None,
+        "has_uv": has_uv,
+        "warns": warns,
+    }
+
 
 def _fmt_vec(vec, digits=4):
     return f"({vec[0]:.{digits}f}, {vec[1]:.{digits}f}, {vec[2]:.{digits}f})"
 
 
-def _vlog(verbose, message):
+def _vlog(verbose, message, log_lines=None):
     if verbose:
         print(message)
+        if log_lines is not None:
+            log_lines.append(message)
 
 
 def _mesh_world_bounds(ob, mesh):
@@ -136,7 +218,7 @@ def _material_slot_names(ob, mesh):
     return names
 
 
-def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK"):
+def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", log_lines=None):
     """Print one verbose line block for a collected / written object."""
     if not verbose:
         return
@@ -146,32 +228,38 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK"):
     rot = ob.rotation_euler
     scale = ob.scale
     parent = ob.parent.name if ob.parent else "<none>"
-    mats = _material_slot_names(ob, mesh)
-    expected = expected_texture_filename(ob.name)
-    image_name = None
-    if image is not None:
-        image_name = bpy.path.basename(image.filepath) or image.name
-
     n_verts = len(mesh.vertices) if mesh is not None else 0
     n_tris = len(mesh.loop_triangles) if mesh is not None else 0
     bounds = _mesh_world_bounds(ob, mesh) if mesh is not None else None
+    bind = resolve_3ds_material_binding(ob, mesh, texture_filename, image)
 
-    print(f"  [{status}] {ob.name}  type={ob.type}")
-    print(f"         parent={parent}")
-    print(f"         location={_fmt_vec(loc)}  rotation={_fmt_vec(rot)}  scale={_fmt_vec(scale)}")
-    print(f"         dimensions={_fmt_vec(dims)}  verts={n_verts}  tris={n_tris}")
+    def out(msg):
+        _vlog(True, msg, log_lines)
+
+    out(f"  [{status}] {ob.name}  type={ob.type}")
+    out(f"         parent={parent}")
+    out(f"         location={_fmt_vec(loc)}  rotation={_fmt_vec(rot)}  scale={_fmt_vec(scale)}")
+    out(f"         dimensions={_fmt_vec(dims)}  verts={n_verts}  tris={n_tris}")
     if bounds is not None:
-        print(
+        out(
             f"         world_bounds min={_fmt_vec(bounds['min'])} "
             f"max={_fmt_vec(bounds['max'])} size={_fmt_vec(bounds['size'])}"
         )
-    print(f"         materials={mats if mats else '<none>'}")
-    print(
-        f"         texture_map={texture_filename or '<none>'}  "
-        f"expected={expected or '<none>'}  "
-        f"blender_image={image_name or '<none>'}"
+    out(f"         blender_slots={bind['blender_slots'] or '<none>'}")
+    out(f"         has_uv={bind['has_uv']}")
+    out(
+        f"         3ds_material_name={bind['3ds_mat_name'] or '<none>'}  "
+        f"3ds_mapfile={bind['3ds_mapfile'] or '<none>'}"
     )
-    print(f"         kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(loc)}")
+    out(f"         faces_reference_materials={bind['face_mat_names'] or '<none>'}")
+    out(
+        f"         expected_map={bind['expected_map'] or '<none>'}  "
+        f"blender_image={bind['blender_image'] or '<none>'}  "
+        f"legacy_279_name={bind['legacy_279_name'] or '<n/a>'}"
+    )
+    out(f"         kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(loc)}")
+    for warn in bind["warns"]:
+        out(f"         [WARN] {warn}")
 
 
 
@@ -246,10 +334,11 @@ def make_material_chunk(material, texture_filename=None, material_name=None):
         material_chunk.add_subchunk(make_percent_subchunk(MATSHIN2, data["specular_intensity"]))
         material_chunk.add_subchunk(make_percent_subchunk(MATTRANS, 1 - data["alpha"]))
 
-        if texture_filename:
-            material_chunk.add_subchunk(
-                make_material_texture_chunk(MAT_DIFFUSEMAP, texture_filename)
-            )
+    # Always attach the map when we have a filename (including synthetic mats).
+    if texture_filename:
+        material_chunk.add_subchunk(
+            make_material_texture_chunk(MAT_DIFFUSEMAP, texture_filename)
+        )
 
     return material_chunk
 
@@ -649,7 +738,7 @@ def _evaluated_mesh_copy(obj, depsgraph):
         return None
 
 
-def collect_mesh_data(context, use_selection, verbose=False):
+def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
     """Gather allowlisted meshes and optional light Empties for export.
 
     ProjShad / LightFProj / MaxBox are always stripped (engine uses .dds only for
@@ -674,11 +763,12 @@ def collect_mesh_data(context, use_selection, verbose=False):
 
     depsgraph = context.evaluated_depsgraph_get()
 
-    _vlog(verbose, "----- Collect -----")
+    _vlog(verbose, "----- Collect -----", log_lines)
     _vlog(
         verbose,
         f"Candidates: {len(objects)} visible"
         f"{' (selection + required)' if use_selection else ''}",
+        log_lines,
     )
 
     for ob in objects:
@@ -687,6 +777,7 @@ def collect_mesh_data(context, use_selection, verbose=False):
                 verbose,
                 f"  [SKIP] {ob.name}  reason=blacklisted "
                 f"(ProjShad/LightFProj/MaxBox — .dds / guide only)",
+                log_lines,
             )
             continue
 
@@ -697,18 +788,31 @@ def collect_mesh_data(context, use_selection, verbose=False):
                     verbose,
                     f"  [COLLECTED] {ob.name}  type=EMPTY  "
                     f"loc={_fmt_vec(ob.location)}  (KFDATA light helper)",
+                    log_lines,
                 )
             else:
-                _vlog(verbose, f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)")
+                _vlog(
+                    verbose,
+                    f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)",
+                    log_lines,
+                )
             continue
 
         if ob.name not in ALLOWED_MESH_NAMES:
-            _vlog(verbose, f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}")
+            _vlog(
+                verbose,
+                f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}",
+                log_lines,
+            )
             continue
 
         derived = re_create_derived_objects(context, ob)
         if derived is None:
-            _vlog(verbose, f"  [SKIP] {ob.name}  reason=instancer child / no derived")
+            _vlog(
+                verbose,
+                f"  [SKIP] {ob.name}  reason=instancer child / no derived",
+                log_lines,
+            )
             continue
 
         for ob_derived, _matrix_world in derived:
@@ -716,6 +820,7 @@ def collect_mesh_data(context, use_selection, verbose=False):
                 _vlog(
                     verbose,
                     f"  [SKIP] {ob_derived.name}  reason=blacklisted (derived)",
+                    log_lines,
                 )
                 continue
             if ob_derived.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
@@ -723,12 +828,14 @@ def collect_mesh_data(context, use_selection, verbose=False):
                     verbose,
                     f"  [SKIP] {ob_derived.name}  reason=unsupported type "
                     f"{ob_derived.type}",
+                    log_lines,
                 )
                 continue
             if ob_derived.name not in ALLOWED_MESH_NAMES:
                 _vlog(
                     verbose,
                     f"  [SKIP] {ob_derived.name}  reason=not on allowlist (derived)",
+                    log_lines,
                 )
                 continue
 
@@ -739,11 +846,10 @@ def collect_mesh_data(context, use_selection, verbose=False):
                 _vlog(
                     verbose,
                     f"  [FAIL] {ob_derived.name}  reason=no evaluable mesh geometry",
+                    log_lines,
                 )
                 continue
 
-            # Keep vertices in local/object space. World location/rotation are written
-            # separately into the 3DS object matrix and KFDATA (4KEX).
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 
@@ -757,11 +863,13 @@ def collect_mesh_data(context, use_selection, verbose=False):
                 image,
                 verbose,
                 status="COLLECTED",
+                log_lines=log_lines,
             )
 
     _vlog(
         verbose,
         f"Collected {len(mesh_objects)} mesh(es), {len(empty_objects)} empty helper(s)",
+        log_lines,
     )
     return mesh_objects, empty_objects, material_dict, texture_info
 
@@ -774,6 +882,7 @@ def do_export(
     material_dict,
     verbose=False,
     texture_info=None,
+    log_lines=None,
 ):
     """Save the Blender scene to a 3DS file."""
     reset_name_tables()
@@ -787,7 +896,7 @@ def do_export(
     object_info = _3ds_chunk(OBJECTINFO)
     kfdata = make_kfdata(0, 100, 0, 1)
 
-    _vlog(verbose, "----- Materials -----")
+    _vlog(verbose, "----- 3DS Material Library -----", log_lines)
     for mat_and_texture in material_dict.values():
         if len(mat_and_texture) == 3:
             material, texture_filename, mat_name = mat_and_texture
@@ -796,9 +905,13 @@ def do_export(
             mat_name = material.name if material else (
                 texture_filename.rsplit(".", 1)[0] if texture_filename else "None"
             )
+        sane_mat = sane_name(mat_name)
+        sane_map = sane_name(texture_filename) if texture_filename else None
         _vlog(
             verbose,
-            f"  [MAT] {mat_name}  map={texture_filename or '<none>'}",
+            f"  [MAT] name={sane_mat}  mapfile={sane_map or '<none>'}  "
+            f"blender_mat={material.name if material else '<synthetic>'}",
+            log_lines,
         )
         object_info.add_subchunk(
             make_material_chunk(material, texture_filename, material_name=mat_name)
@@ -825,7 +938,8 @@ def do_export(
         name_to_pos[ob.name] = ob.location
         name_to_rot[ob.name] = ob.rotation_euler.to_quaternion().inverted()
 
-    _vlog(verbose, "----- Write .3ds -----")
+    _vlog(verbose, "----- Write .3ds -----", log_lines)
+    all_warns = []
     for ob, blender_mesh in mesh_objects:
         try:
             object_chunk = _3ds_chunk(OBJECT)
@@ -848,9 +962,20 @@ def do_export(
             tex, image = texture_info.get(ob.name, (None, None))
             if tex is None:
                 tex, image = get_object_texture_reference(ob, blender_mesh)
-            log_export_object(ob, blender_mesh, tex, image, verbose, status="WRITTEN")
+            bind = resolve_3ds_material_binding(ob, blender_mesh, tex, image)
+            for warn in bind["warns"]:
+                all_warns.append(f"{ob.name}: {warn}")
+            log_export_object(
+                ob,
+                blender_mesh,
+                tex,
+                image,
+                verbose,
+                status="WRITTEN",
+                log_lines=log_lines,
+            )
         except Exception as exc:
-            _vlog(verbose, f"  [FAIL] {ob.name}  reason=write error: {exc}")
+            _vlog(verbose, f"  [FAIL] {ob.name}  reason=write error: {exc}", log_lines)
             raise
 
     for ob in empty_objects:
@@ -860,7 +985,8 @@ def do_export(
         _vlog(
             verbose,
             f"  [WRITTEN] {ob.name}  type=EMPTY  "
-            f"kf_pivot={_fmt_vec(ob.location)}  pos_track={_fmt_vec(ob.location)}",
+            f"kf_pivot=(0.0, 0.0, 0.0)  pos_track={_fmt_vec(ob.location)}",
+            log_lines,
         )
 
     primary.add_subchunk(object_info)
@@ -872,7 +998,48 @@ def do_export(
 
     exported = ", ".join(sorted(name_to_id.keys()))
     print(f"Exported {len(name_to_id)} objects: {exported}")
-    _vlog(verbose, f"File written: {filename}")
+    _vlog(verbose, f"File written: {filename}", log_lines)
+
+    if verbose:
+        _vlog(verbose, "----- Diagnostics / Fix Checklist -----", log_lines)
+        if all_warns:
+            for warn in all_warns:
+                _vlog(verbose, f"  [WARN] {warn}", log_lines)
+        else:
+            _vlog(verbose, "  No material/UV warnings.", log_lines)
+
+        present = set(name_to_id.keys())
+        missing_req = [n for n in REQUIRED_MESHES if n not in present]
+        if missing_req:
+            _vlog(
+                verbose,
+                f"  [WARN] missing required meshes in file: {', '.join(missing_req)}",
+                log_lines,
+            )
+        for banned in ("ProjShad", "LightFProj", "MaxBox", "Maxbox"):
+            if banned in present:
+                _vlog(
+                    verbose,
+                    f"  [WARN] {banned} was written (should be blacklisted)",
+                    log_lines,
+                )
+            else:
+                _vlog(
+                    verbose,
+                    f"  [OK] {banned} not in .3ds (correct — use .dds / guide only)",
+                    log_lines,
+                )
+
+        log_path = filename.rsplit(".", 1)[0] + ".tmf-export.log"
+        try:
+            with open(log_path, "w", encoding="utf-8") as log_file:
+                log_file.write("\n".join(log_lines or []) + "\n")
+            _vlog(verbose, f"Verbose log also saved: {log_path}", log_lines)
+            # Append the path line to the file as well
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                log_file.write(f"Verbose log also saved: {log_path}\n")
+        except OSError as exc:
+            _vlog(verbose, f"  [WARN] could not write log file: {exc}", log_lines)
 
     reset_name_tables()
     return True
