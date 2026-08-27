@@ -148,22 +148,40 @@ class TMF_OT_validate_scene(bpy.types.Operator):
 
             validation = validate_export(context, mesh_objects, self.poly_target)
             settings = getattr(context.scene, "tmf_settings", None)
-            if validation.ok:
-                msg = "OK — Strict checks passed"
-                if settings is not None:
-                    settings.last_validation = msg
-                n = len(mesh_objects) + len(empty_objects)
-                self.report({"INFO"}, f"TMF validation OK ({n} objects, {self.poly_target})")
-                return {"FINISHED"}
+
+            lines = []
+            for error in validation.errors:
+                lines.append(f"[ERR] {error}")
+            for warn in validation.warnings:
+                lines.append(f"[WARN] {warn}")
+            if not lines:
+                lines.append("OK — MaxBox clear; no advisories")
 
             if settings is not None:
-                settings.last_validation = "\n".join(validation.errors)
+                settings.last_validation = "\n".join(lines)
+
             for error in validation.errors[:8]:
                 self.report({"ERROR"}, error)
+            for warn in validation.warnings[:8]:
+                self.report({"WARNING"}, warn)
+            if len(validation.warnings) > 8:
+                self.report(
+                    {"WARNING"},
+                    f"...and {len(validation.warnings) - 8} more warnings (see N-panel)",
+                )
+
+            n = len(mesh_objects) + len(empty_objects)
+            if validation.ok:
+                self.report(
+                    {"INFO"},
+                    f"MaxBox OK ({n} objects, {len(validation.warnings)} warning(s))",
+                )
+                return {"FINISHED"}
+
             if len(validation.errors) > 8:
                 self.report(
                     {"ERROR"},
-                    f"...and {len(validation.errors) - 8} more errors (see N-panel)",
+                    f"...and {len(validation.errors) - 8} more MaxBox errors (see N-panel)",
                 )
             return {"CANCELLED"}
         finally:

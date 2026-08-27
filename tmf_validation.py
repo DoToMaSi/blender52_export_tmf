@@ -9,7 +9,10 @@
 
 from dataclasses import dataclass, field
 
-REQUIRED_MESHES = (
+# Classic United tutorial car parts. Forever can import a single mesh (e.g. only
+# sBody); these names are recommended completeness checks (warnings), not Strict
+# blockers.
+RECOMMENDED_MESHES = (
     "sBody",
     "dBody",
     "gBody",
@@ -22,6 +25,9 @@ REQUIRED_MESHES = (
     "dRRWheel",
     "sRRWheel",
 )
+
+# Back-compat alias used by exporter allowlist / logs.
+REQUIRED_MESHES = RECOMMENDED_MESHES
 
 # Projector meshes written into the .3ds (geometry defines Quality 2 / headlight
 # projection). ProjShad.dds alone in the zip is not enough — missing mesh →
@@ -99,9 +105,24 @@ def is_projector_mesh(name):
     return folded == "projshad" or folded.startswith("lightfproj")
 
 
+def subject_to_strict_extents(name):
+    """
+    Strict MaxBox Y/Z checks apply to car body / wheel meshes only.
+
+    ProjShad is often a large ground plane (or rotated +90° X so footprint lies
+    in XZ) and intentionally exceeds the car height band — excluding it avoids
+    false Strict failures on working cars. Light helpers are tiny flare origins.
+    """
+    if is_export_blacklisted(name):
+        return False
+    if is_projector_mesh(name) or is_optional_light_helper(name):
+        return False
+    return True
+
+
 def mesh_export_names():
     """Object names that receive a full mesh chunk in the .3ds."""
-    return frozenset(REQUIRED_MESHES) | frozenset(PROJECTOR_MESHES)
+    return frozenset(RECOMMENDED_MESHES) | frozenset(PROJECTOR_MESHES)
 
 # Absolute world-space limits in millimeters (TMF Maxbox / engine space).
 # These are real engine limits (~6×3×2.5 mm box) — NOT meters×1000.
@@ -123,10 +144,16 @@ MESH_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
 class ValidationResult:
     ok: bool = True
     errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
 
     def add_error(self, message):
+        """Strict blocker (absolute MaxBox extents)."""
         self.ok = False
         self.errors.append(message)
+
+    def add_warning(self, message):
+        """Advisory only — never blocks Strict or export."""
+        self.warnings.append(message)
 
 
 def to_tmf_mm(value):
@@ -201,6 +228,8 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
 
     Export mesh copies are world-baked via data.transform(matrix_world) (2.1.2);
     vert.co is already in world space — do not multiply by matrix_world again.
+
+    Rotation is not checked separately: only the resulting world verts vs MaxBox.
     """
     verts = _safe_mesh_vertices(mesh)
     if verts is None or len(verts) == 0:
@@ -268,91 +297,92 @@ def count_export_vertices(mesh_objects):
 
 
 def validate_export(context, mesh_objects, poly_target):
+    """
+    Validate collected export meshes.
+
+    Strict blockers (``errors`` / ``ok=False``): world verts of car body/wheel
+    meshes outside MaxBox Y/Z. Forever does not require a full United mesh set.
+
+    Advisories (``warnings``): missing recommended parts, ProjShad, scale,
+    loose verts, sBody origin, vertex budget, naming typos — never block Strict.
+    """
     result = ValidationResult()
     scene = context.scene
 
     mesh_names = {ob.name for ob, _ in mesh_objects}
 
-    for required in REQUIRED_MESHES:
-        if required not in mesh_names:
-            result.add_error(f"Missing required mesh object: {required}")
+    for recommended in RECOMMENDED_MESHES:
+        if recommended not in mesh_names:
+            result.add_warning(
+                f"Missing recommended mesh: {recommended} "
+                f"(Forever can still import a partial car)"
+            )
 
-    # Quality 2 is the fake-shadow projector — needs ProjShad mesh in the .3ds.
     has_projshad = any(
-        (
-            n.rsplit(".", 1)[0]
-            if "." in n and n.rsplit(".", 1)[1].isdigit()
-            else n
-        ).casefold()
-        == "projshad"
-        for n in mesh_names
+        _strip_blender_suffix(n).casefold() == "projshad" for n in mesh_names
     )
     if not has_projshad:
-        result.add_error(
-            "Missing ProjShad mesh (required for Quality 2 shadow projection — "
+        result.add_warning(
+            "Missing ProjShad mesh (Quality 2 shadow may be wrong — "
             "ProjShad.dds in the zip is not enough)"
         )
 
     checked = set()
     for ob, mesh in mesh_objects:
-        if ob.name not in REQUIRED_MESHES and not is_projector_mesh(ob.name):
-            continue
         if ob.name in checked:
             continue
         checked.add(ob.name)
 
         verts = _safe_mesh_vertices(mesh)
         if verts is None or len(verts) == 0:
-            result.add_error(f"{ob.name}: has no evaluable mesh geometry")
+            if subject_to_strict_extents(ob.name):
+                result.add_error(f"{ob.name}: has no evaluable mesh geometry")
+            else:
+                result.add_warning(f"{ob.name}: has no evaluable mesh geometry")
             continue
 
         if not _scale_is_identity(ob):
-            result.add_error(
+            result.add_warning(
                 f"{ob.name}: unapplied scale {tuple(round(s, 4) for s in ob.scale)} "
-                f"(Apply Scale before export)"
+                f"(Apply Scale recommended)"
             )
 
-        # Rotation may stay unapplied: flare helpers need local Y aimed at the car
-        # center, and matrix_world bake already includes object rotation.
+        # Rotation is never a separate check — only world-space verts vs MaxBox.
 
-        if not is_projector_mesh(ob.name):
+        if not is_projector_mesh(ob.name) and not is_optional_light_helper(ob.name):
             loose = count_loose_vertices(mesh)
             if loose > 0:
-                result.add_error(
+                result.add_warning(
                     f"{ob.name}: has {loose} loose/disconnected vertices "
                     f"not used by any face"
                 )
 
-        try:
-            for msg in check_absolute_extents_mm(scene, mesh, ob):
-                result.add_error(f"{ob.name}: {msg}")
-        except Exception as exc:
-            result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
+        if subject_to_strict_extents(ob.name):
+            try:
+                for msg in check_absolute_extents_mm(scene, mesh, ob):
+                    result.add_error(f"{ob.name}: {msg}")
+            except Exception as exc:
+                result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
 
-        # Projector footprint — zero size → Quality 2 bounding box (0.
-        # Thin Z is OK (ground plane); X/Y must cover the car shadow.
+        # Projector footprint — advisory (zero size → Quality 2 bbox 0).
         if is_projector_mesh(ob.name):
             dims = ob.dimensions
-            footprint = max(float(dims.x), float(dims.y))
-            base = (
-                ob.name.rsplit(".", 1)[0]
-                if "." in ob.name and ob.name.rsplit(".", 1)[1].isdigit()
-                else ob.name
-            )
+            # Rotated ProjShad (+90° X) has footprint on X/Z, not X/Y.
+            footprint = max(float(dims.x), float(dims.y), float(dims.z))
+            base = _strip_blender_suffix(ob.name)
             if base.casefold() == "projshad":
                 if footprint < MIN_PROJSHAD_FOOTPRINT:
-                    result.add_error(
+                    result.add_warning(
                         f"{ob.name}: footprint {footprint:.4f} too small "
-                        f"(need ≥ {MIN_PROJSHAD_FOOTPRINT} on X/Y; "
-                        f"Quality 2 bbox → 0)"
+                        f"(need ≥ {MIN_PROJSHAD_FOOTPRINT}; Quality 2 bbox → 0)"
                     )
             elif footprint < MIN_LIGHTFPROJ_EXTENT:
-                result.add_error(
+                result.add_warning(
                     f"{ob.name}: extent {footprint:.4f} too small "
                     f"(need ≥ {MIN_LIGHTFPROJ_EXTENT})"
                 )
 
-    # Engine anchors suspension / tires from sBody origin.
+    # Engine anchors suspension / tires from sBody origin — advisory for Forever.
     for ob, _mesh in mesh_objects:
         if ob.name != "sBody":
             continue
@@ -362,8 +392,8 @@ def validate_export(context, mesh_objects, poly_target):
             or abs(loc.y) > ORIGIN_TOLERANCE
             or abs(loc.z) > ORIGIN_TOLERANCE
         ):
-            result.add_error(
-                f"sBody: origin must be at (0, 0, 0), found "
+            result.add_warning(
+                f"sBody: origin preferably at (0, 0, 0), found "
                 f"({loc.x:.6f}, {loc.y:.6f}, {loc.z:.6f})"
             )
 
@@ -371,22 +401,23 @@ def validate_export(context, mesh_objects, poly_target):
     try:
         vertex_count = count_export_vertices(mesh_objects)
     except Exception as exc:
-        result.add_error(f"Vertex count failed ({exc})")
+        result.add_warning(f"Vertex count failed ({exc})")
         vertex_count = 0
     if vertex_count > vertex_limit:
-        result.add_error(
-            f"Vertex count {vertex_count} exceeds {poly_target} poly limit ({vertex_limit})"
+        result.add_warning(
+            f"Vertex count {vertex_count} exceeds {poly_target} poly target "
+            f"({vertex_limit}) — may fail Low/High Solid compile"
         )
 
     if not mesh_objects:
         result.add_error("No objects selected for export")
 
-    known = REQUIRED_MESHES + PROJECTOR_MESHES + OPTIONAL_MESHES
+    known = RECOMMENDED_MESHES + PROJECTOR_MESHES + OPTIONAL_MESHES
     for name in sorted(mesh_names):
-        for required in known:
-            if required not in mesh_names and name.lower() == required.lower():
-                result.add_error(
-                    f"Object '{name}' looks like '{required}' but spelling/case differs"
+        for recommended in known:
+            if recommended not in mesh_names and name.lower() == recommended.lower():
+                result.add_warning(
+                    f"Object '{name}' looks like '{recommended}' but spelling/case differs"
                 )
 
     return result

@@ -40,7 +40,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         name="Selection Only",
         description=(
             "Export only selected visible objects — nothing is force-included. "
-            "With Strict on, missing required meshes still block the export"
+            "Missing classic United parts are warnings only (Forever accepts partial cars)"
         ),
         default=False,
     )
@@ -48,17 +48,12 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_strict: bpy.props.BoolProperty(
         name="Strict",
         description=(
-            "Enforce TrackMania Forever / Nations / United car-geometry rules before writing "
-            "the .3ds file. When enabled, export is blocked unless all of the following pass: "
-            "exact required mesh names (sBody, dBody, gBody, and eight wheel parts); "
-            "sBody origin at (0, 0, 0); applied scale on required meshes "
-            "(rotation may stay unapplied — needed for light flare aim); "
-            "no loose/disconnected vertices; absolute world extents Y in [-3, 3] mm and "
-            "Z in [-0.3, 2.2] mm; vertex count within Poly Target. "
-            "ProjShad / LightFProj meshes are exported (Quality 2 / headlights); "
-            "MaxBox is never exported (scale guide). "
-            "Disable Strict to test incomplete WIP scenes; the game importer may still fail "
-            "silently on invalid files"
+            "Block export only when car body/wheel world vertices fall outside the TMF "
+            "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm). Forever does not require a "
+            "full United mesh set — missing parts, loose verts, scale, ProjShad, and "
+            "vertex budget are always reported as warnings and never block Strict. "
+            "ProjShad / light helpers are excluded from MaxBox checks (large shadow "
+            "planes are valid). Rotation is not checked except via resulting world verts"
         ),
         default=True,
     )
@@ -75,7 +70,10 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
     poly_target: bpy.props.EnumProperty(
         name="Poly Target",
-        description="Vertex budget for the exported car geometry (used by Strict validation)",
+        description=(
+            "Advisory vertex budget (warnings only — does not block Strict). "
+            "High ≈ MainBodyHigh.Solid.gbx, Low ≈ MainBody.Solid.gbx"
+        ),
         items=(
             ("HIGH", "High Poly", "Up to 100,000 vertices (MainBodyHigh.Solid.gbx)"),
             ("LOW", "Low Poly", "Up to 3,600 vertices (MainBody.Solid.gbx)"),
@@ -118,16 +116,34 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     log_lines.append("Nothing to export (no allowlisted meshes found)")
                 return {"CANCELLED"}
 
+            validation = validate_export(
+                context,
+                mesh_objects,
+                self.poly_target,
+            )
+
+            # Soft advisories always (Strict on or off).
+            if validation.warnings:
+                if verbose:
+                    print("----- Validation warnings -----")
+                    log_lines.append("----- Validation warnings -----")
+                    for warn in validation.warnings:
+                        line = f"  [WARN] {warn}"
+                        print(line)
+                        log_lines.append(line)
+                for warn in validation.warnings[:8]:
+                    self.report({"WARNING"}, warn)
+                if len(validation.warnings) > 8:
+                    self.report(
+                        {"WARNING"},
+                        f"...and {len(validation.warnings) - 8} more warnings",
+                    )
+
             if self.use_strict:
-                validation = validate_export(
-                    context,
-                    mesh_objects,
-                    self.poly_target,
-                )
                 if not validation.ok:
                     if verbose:
-                        print("----- Strict validation FAILED -----")
-                        log_lines.append("----- Strict validation FAILED -----")
+                        print("----- Strict MaxBox FAILED -----")
+                        log_lines.append("----- Strict MaxBox FAILED -----")
                         for error in validation.errors:
                             line = f"  [ERR] {error}"
                             print(line)
@@ -137,17 +153,23 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     if len(validation.errors) > 8:
                         self.report(
                             {"ERROR"},
-                            f"...and {len(validation.errors) - 8} more validation errors",
+                            f"...and {len(validation.errors) - 8} more MaxBox errors",
                         )
                     return {"CANCELLED"}
                 if verbose:
-                    print("----- Strict validation OK -----")
-                    log_lines.append("----- Strict validation OK -----")
-            else:
-                self.report(
-                    {"WARNING"},
-                    "Strict validation off — incomplete TMF geometry may fail in-game",
+                    print("----- Strict MaxBox OK -----")
+                    log_lines.append("----- Strict MaxBox OK -----")
+            elif verbose:
+                log_lines.append(
+                    "Strict off — MaxBox errors (if any) were not enforced"
                 )
+                if validation.errors:
+                    for error in validation.errors:
+                        line = f"  [ERR skipped] {error}"
+                        print(line)
+                        log_lines.append(line)
+                    for error in validation.errors[:4]:
+                        self.report({"WARNING"}, f"[Strict off] {error}")
 
             context.window.cursor_set("WAIT")
             try:
