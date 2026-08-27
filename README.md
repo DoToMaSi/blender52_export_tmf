@@ -59,18 +59,26 @@ Link this folder into a local extensions repository for live reload during devel
 
 | Workflow | Trigger | Result |
 |---|---|---|
-| **CI** | Push / PR to `master` | Staged extension build, bundle zip, both uploaded as artifacts |
-| **CI → tag** | Push to `master` after CI passes | Creates `v{version}` tag from `blender_manifest.toml` if it does not exist yet |
-| **Release** | Push tag `v*` (auto or manual) | Publishes `export_3ds_tmf-<version>.zip` + `export_3ds_tmf-<version>-bundle.zip` |
+| **CI** | Push / PR to `master` | Builds and verifies both zips; uploads them as **Actions artifacts** (PRs stop here) |
+| **CI → release** | Push to `master` after CI passes | Tags `v{version}` if needed, then **publishes a GitHub Release** with both zips attached |
+| **Release (manual)** | Actions → Run workflow | Re-publish assets for an existing tag (recovery only) |
 
 **Cutting a release**
 
 1. Bump `version` in `blender_manifest.toml`.
 2. Commit and push to `master` (include `docs/TUTORIAL.md` updates if any).
-3. CI builds and verifies the zips, then **automatically tags** `v{version}` and pushes the tag.
-4. The **Release** workflow runs on that tag and publishes both zips to GitHub Releases.
+3. CI builds the zips, tags `v{version}` if it does not exist yet, and publishes the GitHub Release with both assets attached.
 
-To re-release the same version, delete the existing tag on GitHub first, then re-run CI (or push an empty commit). To release without changing code, you can still tag manually: `git tag v2.3.5 && git push origin v2.3.5`.
+**Do not** use the GitHub **“Create a new release”** page to upload zips manually — that bypasses CI. If a draft release was started by hand, delete it and re-run the **CI** workflow on `master` instead.
+
+**Where to download builds**
+
+| Location | What |
+|---|---|
+| **Releases** tab | Official downloads for end users (`export_3ds_tmf-*.zip` + `-bundle.zip`) |
+| **Actions → CI run → Artifacts** | Same zips from the build job (useful for PR verification) |
+
+To re-release the same version: delete the GitHub Release (and tag if needed), then re-run CI or use **Release (manual)** with the tag name.
 
 Build artifacts (`*.zip`, `build/`) are not stored in git — only produced by CI or `scripts/package-release.*`.
 

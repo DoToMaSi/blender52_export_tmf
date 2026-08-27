@@ -1,19 +1,27 @@
-name: Release
+name: Release (manual)
 
+# Normal releases are published by CI (tag-release job) using build artifacts.
+# Use this only to re-publish assets for an existing tag without a new commit.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish (e.g. v2.3.5)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  republish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout tag
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
 
       - name: Install Blender 5.2 LTS
         run: |
@@ -26,7 +34,6 @@ jobs:
           BLENDER_BIN="$(find "$RUNNER_TEMP" -maxdepth 3 -type f -name blender -executable | head -n 1)"
           if [[ -z "$BLENDER_BIN" ]]; then
             echo "error: blender binary not found after extract" >&2
-            find "$RUNNER_TEMP" -maxdepth 3 -type f | head -50 >&2
             exit 1
           fi
           BLENDER_DIR="$(dirname "$BLENDER_BIN")"
@@ -37,13 +44,13 @@ jobs:
       - name: Check tag matches manifest version
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${{ inputs.tag }}"
+          TAG="${TAG#v}"
           MANIFEST_VERSION="$(grep -E '^version\s*=' blender_manifest.toml | sed -E 's/^version\s*=\s*"([^"]+)".*/\1/')"
           if [[ "$TAG" != "$MANIFEST_VERSION" ]]; then
             echo "Tag v${TAG} does not match blender_manifest.toml version ${MANIFEST_VERSION}" >&2
             exit 1
           fi
-          echo "Version OK: ${MANIFEST_VERSION}"
 
       - name: Package release (extension + bundle)
         run: bash scripts/package-release.sh
@@ -56,12 +63,11 @@ jobs:
           BUNDLE_ZIP="$(ls -1 export_3ds_tmf-*-bundle.zip | head -n 1)"
           echo "ext_zip=$EXT_ZIP" >> "$GITHUB_OUTPUT"
           echo "bundle_zip=$BUNDLE_ZIP" >> "$GITHUB_OUTPUT"
-          echo "Extension: $EXT_ZIP"
-          echo "Bundle: $BUNDLE_ZIP"
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag }}
           files: |
             ${{ steps.artifacts.outputs.ext_zip }}
             ${{ steps.artifacts.outputs.bundle_zip }}

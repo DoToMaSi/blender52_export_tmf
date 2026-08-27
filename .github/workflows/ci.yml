@@ -79,13 +79,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create release tag if missing
+      - name: Resolve version and tag
+        id: version
         run: |
           set -euo pipefail
           VERSION="$(grep -E '^version\s*=' blender_manifest.toml | sed -E 's/^version\s*=\s*"([^"]+)".*/\1/')"
-          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release tag if missing
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists — skipping"
+            echo "Tag ${TAG} already exists — continuing to publish release assets"
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -93,3 +100,22 @@ jobs:
           git tag -a "$TAG" -m "Release ${TAG}"
           git push origin "$TAG"
           echo "Created and pushed ${TAG}"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: export_3ds_tmf-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -la release-assets/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
