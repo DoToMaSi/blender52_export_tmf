@@ -67,7 +67,7 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         name="Create Name Collections",
         description=(
             f"Add empty Outliner collections for every canonical TMF mesh name under "
-            f"\"{TMF_NAMES_ROOT_COLLECTION}\" (same list as 3ds Max Select Objects). "
+            f"\"{TMF_NAMES_ROOT_COLLECTION}\". "
             "No meshes are created — drag your parts in and rename to match. "
             "Collections are never exported; existing name collections are kept"
         ),
