@@ -11,10 +11,49 @@ import bpy
 from mathutils import Vector
 
 from .exporter import cleanup_mesh_objects, collect_mesh_data
-from .tmf_validation import ABS_Y_MM, ABS_Z_MM, validate_export
+from .tmf_validation import ABS_Y_MM, ABS_Z_MM, TMF_NAME_GUIDE_MESHES, TMF_NAMES_ROOT_COLLECTION, validate_export
 
 # MaxBox guide: Blender Z-up box matching the TMF car envelope (~3 wide × 6 long × 2.5 tall).
 MAXBOX_SIZE = (3.0, 6.0, 2.5)
+
+
+def _collection_in_parent(name, parent):
+    for child in parent.children:
+        if child.name == name:
+            return child
+    return None
+
+
+def create_tmf_name_collections(context):
+    """
+    Empty Outliner collections for every canonical TMF mesh name.
+
+    Skips names that already exist under the guide root. No meshes are created.
+    """
+    scene = context.scene
+    root = bpy.data.collections.get(TMF_NAMES_ROOT_COLLECTION)
+    created_root = False
+    if root is None:
+        root = bpy.data.collections.new(TMF_NAMES_ROOT_COLLECTION)
+        scene.collection.children.link(root)
+        created_root = True
+
+    created = []
+    skipped = []
+    for mesh_name in TMF_NAME_GUIDE_MESHES:
+        if _collection_in_parent(mesh_name, root) is not None:
+            skipped.append(mesh_name)
+            continue
+        coll = bpy.data.collections.new(mesh_name)
+        root.children.link(coll)
+        created.append(mesh_name)
+
+    return {
+        "root": root.name,
+        "created": created,
+        "skipped": skipped,
+        "created_root": created_root,
+    }
 
 
 def _find_maxbox(scene):
@@ -110,10 +149,15 @@ def create_maxbox_guide(context, update_if_exists=True):
     }
 
 
-def prepare_tmf_scene(context):
-    """Metric units, tight view clips, and MaxBox scale guide."""
+def prepare_tmf_scene(context, create_maxbox=True, create_name_collections=False):
+    """Metric units, tight view clips, optional MaxBox and name-guide collections."""
     prepare_tmf_workspace(context)
-    return create_maxbox_guide(context, update_if_exists=True)
+    info = {"collections": None}
+    if create_maxbox:
+        info = create_maxbox_guide(context, update_if_exists=True)
+    if create_name_collections:
+        info["collections"] = create_tmf_name_collections(context)
+    return info
 
 
 class TMF_OT_prepare_scene(bpy.types.Operator):
@@ -124,11 +168,32 @@ class TMF_OT_prepare_scene(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        info = prepare_tmf_scene(context)
-        if info["created_maxbox"]:
-            self.report({"INFO"}, f"Created {info['maxbox']} guide + TMF units/clips")
-        else:
-            self.report({"INFO"}, f"Updated TMF units/clips; {info['maxbox']} already present")
+        settings = getattr(context.scene, "tmf_settings", None)
+        create_maxbox = True
+        create_name_collections = True
+        if settings is not None:
+            create_maxbox = settings.prepare_create_maxbox
+            create_name_collections = settings.prepare_create_collections
+
+        info = prepare_tmf_scene(
+            context,
+            create_maxbox=create_maxbox,
+            create_name_collections=create_name_collections,
+        )
+        parts = ["TMF units and view clips applied"]
+        if create_maxbox:
+            if info.get("created_maxbox"):
+                parts.append(f"created {info['maxbox']}")
+            else:
+                parts.append(f"updated {info.get('maxbox', 'MaxBox')}")
+        coll_info = info.get("collections")
+        if coll_info:
+            n_new = len(coll_info["created"])
+            if n_new:
+                parts.append(f"{n_new} name collections added")
+            else:
+                parts.append("name collections already present")
+        self.report({"INFO"}, "; ".join(parts))
         return {"FINISHED"}
 
 

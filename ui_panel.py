@@ -10,6 +10,7 @@
 import bpy
 
 from .addon_info import ADDON_NAME, ADDON_VERSION
+from .tmf_validation import TMF_NAMES_ROOT_COLLECTION
 
 
 class TMF_PG_settings(bpy.types.PropertyGroup):
@@ -28,6 +29,24 @@ class TMF_PG_settings(bpy.types.PropertyGroup):
     replace_helpers: bpy.props.BoolProperty(
         name="Replace Existing Helpers",
         default=False,
+    )
+    prepare_create_maxbox: bpy.props.BoolProperty(
+        name="Create MaxBox",
+        description=(
+            "When preparing the scene: create or refresh the wire MaxBox guide "
+            "(≈3×6×2.5 mm). Never exported, but essential for editing proportions"
+        ),
+        default=True,
+    )
+    prepare_create_collections: bpy.props.BoolProperty(
+        name="Create Name Collections",
+        description=(
+            f"When preparing the scene: add empty Outliner collections for every "
+            f"canonical TMF mesh name under \"{TMF_NAMES_ROOT_COLLECTION}\" "
+            "(sBody, wheels, lights, suspension, ProjShad, etc.). Drag meshes in "
+            "and match the name — collections are never exported, only a spelling guide"
+        ),
+        default=True,
     )
     last_validation: bpy.props.StringProperty(
         name="Last Validation",
@@ -53,6 +72,8 @@ class VIEW3D_PT_tmf(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Scene")
+        box.prop(settings, "prepare_create_maxbox")
+        box.prop(settings, "prepare_create_collections")
         box.operator("tmf.prepare_scene", icon="SCENE_DATA")
 
         box = layout.box()

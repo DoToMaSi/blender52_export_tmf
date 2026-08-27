@@ -15,7 +15,7 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 from .format_3ds import parse_3ds_file
-from .tmf_scene import create_maxbox_guide, prepare_tmf_workspace
+from .tmf_scene import create_maxbox_guide, create_tmf_name_collections, prepare_tmf_workspace
 
 
 def _base_name(name):
@@ -164,14 +164,16 @@ def do_import(
     link_collection=None,
     prepare_workspace=False,
     create_maxbox=False,
+    create_name_collections=False,
 ):
     """
     Import a TMF .3ds into the current scene.
 
     prepare_workspace: metric units + view clips (no helpers).
     create_maxbox: wire MaxBox guide when none exists in the scene.
+    create_name_collections: empty Outliner name-guide collections.
 
-    Returns dict with keys: objects, skipped, materials, projshad_restored.
+    Returns dict with keys: objects, skipped, materials, projshad_restored, maxbox, collections.
     """
     if prepare_workspace:
         prepare_tmf_workspace(context)
@@ -261,10 +263,15 @@ def do_import(
     if create_maxbox:
         maxbox_info = create_maxbox_guide(context, update_if_exists=False)
 
+    collections_info = None
+    if create_name_collections:
+        collections_info = create_tmf_name_collections(context)
+
     return {
         "objects": created,
         "skipped": skipped,
         "materials": [m.name for m in parsed.materials if m.name],
         "projshad_restored": projshad_restored,
         "maxbox": maxbox_info,
+        "collections": collections_info,
     }

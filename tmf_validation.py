@@ -70,6 +70,52 @@ OPTIONAL_MESHES = (
     "RRLight",
 )
 
+# Full stock-car name set (3ds Max Select Objects / Nadeo reference). Used for empty
+# Outliner collections as a naming guide — collections are never exported.
+TMF_NAME_GUIDE_MESHES = (
+    "dBody",
+    "dFLArmBot",
+    "dFLArmDir",
+    "dFLArmTop",
+    "dFLGuard",
+    "dFLHub",
+    "dFLWheel",
+    "dFRArmBot",
+    "dFRArmDir",
+    "dFRArmTop",
+    "dFRGuard",
+    "dFRHub",
+    "dFRWheel",
+    "dRLArmBot",
+    "dRLArmTop",
+    "dRLCardan",
+    "dRLHub",
+    "dRLWheel",
+    "dRRArmBot",
+    "dRRArmTop",
+    "dRRCardan",
+    "dRRHub",
+    "dRRWheel",
+    "gBody",
+    "LightFL1",
+    "LightFL2",
+    "LightFL3",
+    "LightFR1",
+    "LightFR2",
+    "LightFR3",
+    "LightFProj",
+    "LightRL",
+    "LightRR",
+    "ProjShad",
+    "sBody",
+    "sFLWheel",
+    "sFRWheel",
+    "sRLWheel",
+    "sRRWheel",
+)
+
+TMF_NAMES_ROOT_COLLECTION = "TMF Mesh Names"
+
 _OPTIONAL_MESHES_FOLD = frozenset(n.casefold() for n in OPTIONAL_MESHES)
 
 

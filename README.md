@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.2.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.3.zip`.
 
 ### Development (symlink)
 
@@ -39,7 +39,7 @@ blender --command extension build
 
 | Tool | Action |
 |---|---|
-| **Prepare TMF Scene** | Metric units, tight view clips, wire **MaxBox** guide (3×6×2.5) |
+| **Prepare TMF Scene** | Metric units, tight view clips, optional **MaxBox** and **Name Collections** |
 | **Validate TMF Scene** | Same Strict checks as export, without writing a file |
 | **Helpers** | Spawn `ProjShad`, `LightFProj`, `LightFL1/FR1/RL/RR` as meshes |
 | **Import / Export** | Shortcuts to the File menu operators |
@@ -47,7 +47,7 @@ blender --command extension build
 ### Import
 
 1. **File → Import → 3DS for TMF (.3ds)** (or N-panel button).
-2. **Create MaxBox** (default on): adds the wire scale guide when none exists.
+2. **Create MaxBox** / **Create Name Collections** (import defaults on): scale guide and/or empty Outliner folders under **TMF Mesh Names** for every canonical part name (3ds Max list).
 3. **Prepare Scene for TMF** (default off): sets metric units and view clips for a clean TMF-only file — leave off when other meshes use different units.
 4. `ProjShad` is auto-rotated back to a flat Blender ground plane (export’s TM Y-up orient is reversed); hub location is kept.
 5. Prefer files produced by this extension — stock Max/Nadeo cars may misplace pivots.

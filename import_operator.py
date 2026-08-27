@@ -14,6 +14,7 @@ import bpy_extras
 
 from .addon_info import ADDON_NAME, ADDON_VERSION
 from .importer import do_import
+from .tmf_validation import TMF_NAMES_ROOT_COLLECTION
 
 
 class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
@@ -54,10 +55,22 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         default=True,
     )
 
+    create_name_collections: bpy.props.BoolProperty(
+        name="Create Name Collections",
+        description=(
+            f"Add empty Outliner collections for every canonical TMF mesh name under "
+            f"\"{TMF_NAMES_ROOT_COLLECTION}\" (same list as 3ds Max Select Objects). "
+            "No meshes are created — drag your parts in and rename to match. "
+            "Collections are never exported; existing name collections are kept"
+        ),
+        default=True,
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "prepare_scene")
         layout.prop(self, "create_maxbox")
+        layout.prop(self, "create_name_collections")
 
     def execute(self, context):
         filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
@@ -69,6 +82,7 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
                 filepath,
                 prepare_workspace=self.prepare_scene,
                 create_maxbox=self.create_maxbox,
+                create_name_collections=self.create_name_collections,
             )
         except Exception as exc:
             self.report({"ERROR"}, f"Import failed: {exc}")
@@ -85,6 +99,12 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         maxbox_info = result.get("maxbox")
         if maxbox_info and maxbox_info.get("created_maxbox"):
             self.report({"INFO"}, f"Created {maxbox_info['maxbox']} scale guide")
+        coll_info = result.get("collections")
+        if coll_info and coll_info.get("created"):
+            self.report(
+                {"INFO"},
+                f"Added {len(coll_info['created'])} name collections under {TMF_NAMES_ROOT_COLLECTION}",
+            )
         elif self.prepare_scene:
             self.report({"INFO"}, "TMF workspace units and view clips applied")
         if result["skipped"]:
