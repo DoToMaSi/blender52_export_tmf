@@ -60,20 +60,19 @@ Link this folder into a local extensions repository for live reload during devel
 | Workflow | Trigger | Result |
 |---|---|---|
 | **CI** | Push / PR to `master` | Staged extension build, bundle zip, both uploaded as artifacts |
-| **Release** | Push tag `v*` (e.g. `v2.3.5`) | Publishes `export_3ds_tmf-<version>.zip` + `export_3ds_tmf-<version>-bundle.zip` |
+| **CI → tag** | Push to `master` after CI passes | Creates `v{version}` tag from `blender_manifest.toml` if it does not exist yet |
+| **Release** | Push tag `v*` (auto or manual) | Publishes `export_3ds_tmf-<version>.zip` + `export_3ds_tmf-<version>-bundle.zip` |
 
 **Cutting a release**
 
 1. Bump `version` in `blender_manifest.toml`.
 2. Commit and push to `master` (include `docs/TUTORIAL.md` updates if any).
-3. Tag and push (tag must match manifest version):
+3. CI builds and verifies the zips, then **automatically tags** `v{version}` and pushes the tag.
+4. The **Release** workflow runs on that tag and publishes both zips to GitHub Releases.
 
-```powershell
-git tag v2.3.5
-git push origin v2.3.5
-```
+To re-release the same version, delete the existing tag on GitHub first, then re-run CI (or push an empty commit). To release without changing code, you can still tag manually: `git tag v2.3.5 && git push origin v2.3.5`.
 
-GitHub Actions publishes both zips automatically. Build artifacts (`*.zip`, `build/`) are not stored in git — only produced by CI or `scripts/package-release.*`.
+Build artifacts (`*.zip`, `build/`) are not stored in git — only produced by CI or `scripts/package-release.*`.
 
 ## Build and validate (manual)
 
