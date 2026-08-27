@@ -32,35 +32,78 @@ def _is_projshad_name(name):
     return _base_name(name).casefold() == "projshad"
 
 
-def _mesh_aabb_size(mesh):
-    if not mesh.vertices:
+def _mesh_aabb_size_from_verts(verts):
+    if not verts:
         return None
-    xs = [v.co.x for v in mesh.vertices]
-    ys = [v.co.y for v in mesh.vertices]
-    zs = [v.co.z for v in mesh.vertices]
+    xs = [v[0] if not hasattr(v, "x") else v.x for v in verts]
+    ys = [v[1] if not hasattr(v, "y") else v.y for v in verts]
+    zs = [v[2] if not hasattr(v, "z") else v.z for v in verts]
     return (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+
+
+def _mesh_aabb_size(mesh):
+    return _mesh_aabb_size_from_verts(mesh.vertices)
+
+
+def _is_near_identity_rotation(q_blender, tolerance=0.02):
+    return abs(q_blender.angle) < tolerance or abs(q_blender.angle - 2.0 * math.pi) < tolerance
+
+
+def _is_tm_export_shadow_world(verts):
+    """True when world verts look like post-export TM orient (+90° X baked, hub rot ≈ 0)."""
+    size = _mesh_aabb_size_from_verts(verts)
+    if size is None:
+        return False
+    sx, sy, sz = size
+    thin_y = sy <= sx * 0.15 and sy <= sz * 0.15
+    not_flat_z = not (sz <= sx * 0.15 and sz <= sy * 0.15)
+    return thin_y and not_flat_z
 
 
 def restore_projshad_blender_orientation(mesh):
     """
     Undo export +90° X (TM Y-up shadow plane) back to a Blender Z-up ground plane.
 
-    Pivot stays at the mesh origin — only local vertex positions change, matching
-    the inverse of exporter.apply_projshad_tm_orientation().
+    Pivot stays at the mesh origin — only local vertex positions change.
     """
     size = _mesh_aabb_size(mesh)
     if size is None:
         return False
     sx, sy, sz = size
-    # Already Blender flat (thin on Z) — nothing to do.
     if sz <= sx * 0.15 and sz <= sy * 0.15:
         return False
-    # TM-exported layout: thin on Y (wall in the XZ plane).
     if sy <= sx * 0.15 and sy <= sz * 0.15:
         mesh.transform(Matrix.Rotation(math.radians(-90.0), 4, "X"))
         mesh.update()
         return True
     return False
+
+
+def _projshad_import_verts(obj_data, kf_node):
+    """
+    ProjShad: flat Z-up local mesh, hub location, rotation always cleared to 0.
+
+    Export stores world-baked verts plus hub rotation when the plane was authored
+    with +90° X. Un-baking recovers local geometry; clearing rotation avoids a
+    vertical plane in the viewport. When hub rot ≈ 0, also undo export +90° X.
+    """
+    loc, _rot_euler, q_blender = _hub_transform(obj_data, kf_node)
+    local_verts = _unbake_verts(obj_data.verts, loc, q_blender)
+    restored = False
+
+    if _is_near_identity_rotation(q_blender):
+        world_verts = obj_data.verts
+        if _is_tm_export_shadow_world(local_verts) or _is_tm_export_shadow_world(world_verts):
+            rot = Matrix.Rotation(math.radians(-90.0), 4, "X")
+            local_verts = [tuple(rot @ Vector(v)) for v in local_verts]
+            restored = True
+    elif _is_tm_export_shadow_world(local_verts):
+        # Hub had rotation but local coords are still TM wall layout — flatten.
+        rot = Matrix.Rotation(math.radians(-90.0), 4, "X")
+        local_verts = [tuple(rot @ Vector(v)) for v in local_verts]
+        restored = True
+
+    return local_verts, loc, restored
 
 
 def _ensure_material(name, mapfile=None, search_dir=None):
@@ -200,15 +243,19 @@ def do_import(
             continue
 
         kf = kf_map.get(name)
-        loc, rot_euler, q_blender = _hub_transform(obj_data, kf)
-        local_verts = _unbake_verts(obj_data.verts, loc, q_blender)
+        projshad_restored_this = False
+        if _is_projshad_name(name):
+            local_verts, loc, projshad_restored_this = _projshad_import_verts(obj_data, kf)
+            rot_euler = (0.0, 0.0, 0.0)
+            if projshad_restored_this:
+                projshad_restored = True
+        else:
+            loc, rot_euler, q_blender = _hub_transform(obj_data, kf)
+            local_verts = _unbake_verts(obj_data.verts, loc, q_blender)
 
         mesh = bpy.data.meshes.new(name)
         mesh.from_pydata(local_verts, [], obj_data.faces)
         mesh.update()
-
-        if _is_projshad_name(name) and restore_projshad_blender_orientation(mesh):
-            projshad_restored = True
 
         if obj_data.uvs and len(obj_data.uvs) == len(local_verts):
             uv_layer = mesh.uv_layers.new(name="UVMap")

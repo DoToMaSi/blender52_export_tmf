@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.3.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.4.zip`.
 
 ### Development (symlink)
 
@@ -49,7 +49,7 @@ blender --command extension build
 1. **File → Import → 3DS for TMF (.3ds)** (or N-panel button).
 2. **Create MaxBox** / **Create Name Collections** (import defaults on): scale guide and/or empty Outliner folders under **TMF Mesh Names** for every canonical part name (3ds Max list).
 3. **Prepare Scene for TMF** (default off): sets metric units and view clips for a clean TMF-only file — leave off when other meshes use different units.
-4. `ProjShad` is auto-rotated back to a flat Blender ground plane (export’s TM Y-up orient is reversed); hub location is kept.
+4. `ProjShad` imports as a flat ground plane at the hub origin with **rotation cleared to 0** (export TM +90° X and/or authored +90° X on the object are absorbed into the mesh).
 5. Prefer files produced by this extension — stock Max/Nadeo cars may misplace pivots.
 
 ### Export

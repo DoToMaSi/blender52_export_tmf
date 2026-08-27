@@ -17,6 +17,14 @@ from .importer import do_import
 from .tmf_validation import TMF_NAMES_ROOT_COLLECTION
 
 
+def _imported_projshad(names):
+    for n in names:
+        base = n.rsplit(".", 1)[0] if "." in n and n.rsplit(".", 1)[1].isdigit() else n
+        if base.casefold() == "projshad":
+            return True
+    return False
+
+
 class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     """Import 3DS model produced by Export 3DS for TMF (round-trip)"""
 
@@ -96,6 +104,8 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         self.report({"INFO"}, msg)
         if result.get("projshad_restored"):
             self.report({"INFO"}, "ProjShad restored to flat Blender ground orientation")
+        elif _imported_projshad(result["objects"]):
+            self.report({"INFO"}, "ProjShad imported flat (hub rotation cleared)")
         maxbox_info = result.get("maxbox")
         if maxbox_info and maxbox_info.get("created_maxbox"):
             self.report({"INFO"}, f"Created {maxbox_info['maxbox']} scale guide")
