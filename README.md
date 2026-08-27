@@ -13,20 +13,49 @@ TMF workflow reference: car model conversion tutorial by trick@ugghost.com (2008
 
 ## Installation
 
-### From built package
+### From GitHub Release (recommended)
+
+1. Open [Releases](https://github.com/DoToMaSi/blender52_export_tmf/releases) and download the latest `export_3ds_tmf-<version>.zip`.
+2. In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select the zip.
+3. Optional: download `base-tmf-scene.blend` from the same release for a preconfigured TMF workspace (metric units, MaxBox, name collections).
+
+### Build locally
 
 ```powershell
-cd D:\WORKSPACE\PERSONAL\blender_export_tmf
-blender --command extension build
+# Windows
+.\scripts\ci-build.ps1
+
+# Linux / macOS (Blender 5.2+ on PATH)
+./scripts/ci-build.sh
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.4.zip`.
+Then install the generated `export_3ds_tmf-<version>.zip` from the repo root.
 
 ### Development (symlink)
 
 Link this folder into a local extensions repository for live reload during development.
 
-## Build and validate
+## CI and releases
+
+| Workflow | Trigger | Result |
+|---|---|---|
+| **CI** | Push / PR to `master` | Validates manifest, builds zip, uploads artifact |
+| **Release** | Push tag `v*` (e.g. `v2.3.4`) | Builds zip + attaches `base-tmf-scene.blend` to a GitHub Release |
+
+**Cutting a release**
+
+1. Bump `version` in `blender_manifest.toml`.
+2. Commit and push to `master`.
+3. Tag and push (tag must match manifest version):
+
+```powershell
+git tag v2.3.4
+git push origin v2.3.4
+```
+
+GitHub Actions publishes the release automatically. Build artifacts (`*.zip`) are not stored in git — only produced by CI or local build scripts.
+
+## Build and validate (manual)
 
 ```powershell
 blender --command extension validate
@@ -137,6 +166,10 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 
 ```
 blender_export_tmf/
+├── .github/workflows/      # CI + release pipelines
+├── base-tmf-scene.blend      # Bundled starter scene (also on Releases)
+├── scripts/ci-build.ps1      # Local build (Windows)
+├── scripts/ci-build.sh       # Local build (Linux/macOS)
 ├── blender_manifest.toml
 ├── __init__.py
 ├── export_operator.py      # File > Export

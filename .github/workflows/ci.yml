@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Blender 5.2 LTS
+        run: |
+          set -euo pipefail
+          BLENDER_VERSION=5.2.0
+          BLENDER_DIR="$RUNNER_TEMP/blender-${BLENDER_VERSION}-linux-x64"
+          curl -fsSL "https://download.blender.org/release/Blender5.2/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP"
+          echo "$BLENDER_DIR" >> "$GITHUB_PATH"
+          blender --version
+
+      - name: Validate extension manifest
+        run: blender --command extension validate
+
+      - name: Build extension zip
+        run: blender --command extension build
+
+      - name: Verify zip artifact
+        run: |
+          set -euo pipefail
+          ZIP="$(ls -1 export_3ds_tmf-*.zip | head -n 1)"
+          test -f "$ZIP"
+          echo "Built: $ZIP ($(wc -c < "$ZIP") bytes)"
+          unzip -l "$ZIP" | grep -E 'blender_manifest\.toml|__init__\.py|base-tmf-scene\.blend'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: export_3ds_tmf-extension
+          path: export_3ds_tmf-*.zip
+          if-no-files-found: error
