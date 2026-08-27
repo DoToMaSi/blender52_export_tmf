@@ -20,7 +20,7 @@ cd D:\WORKSPACE\PERSONAL\blender_export_tmf
 blender --command extension build
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.1.zip`.
+In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select `export_3ds_tmf-2.3.2.zip`.
 
 ### Development (symlink)
 
@@ -47,8 +47,10 @@ blender --command extension build
 ### Import
 
 1. **File → Import → 3DS for TMF (.3ds)** (or N-panel button).
-2. Prefer files produced by this extension — import reverses our export rules (world-baked verts → hub `location` + local verts).
-3. Stock Max/Nadeo cars may misplace pivots; that is a later stretch goal.
+2. **Create MaxBox** (default on): adds the wire scale guide when none exists.
+3. **Prepare Scene for TMF** (default off): sets metric units and view clips for a clean TMF-only file — leave off when other meshes use different units.
+4. `ProjShad` is auto-rotated back to a flat Blender ground plane (export’s TM Y-up orient is reversed); hub location is kept.
+5. Prefer files produced by this extension — stock Max/Nadeo cars may misplace pivots.
 
 ### Export
 

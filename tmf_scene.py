@@ -25,8 +25,12 @@ def _find_maxbox(scene):
     return None
 
 
-def prepare_tmf_scene(context):
-    """Metric units, tight view clips, and MaxBox scale guide."""
+def prepare_tmf_workspace(context):
+    """
+    Metric units and viewport clips for TMF car scale (~1 Blender unit = 1 mm).
+
+    Does not spawn helpers or MaxBox — safe to call from import when the user opts in.
+    """
     scene = context.scene
     units = scene.unit_settings
     units.system = "METRIC"
@@ -46,18 +50,27 @@ def prepare_tmf_scene(context):
             if hasattr(space, "overlay") and hasattr(space.overlay, "grid_scale"):
                 space.overlay.grid_scale = 1.0
 
-    created = False
+
+def create_maxbox_guide(context, update_if_exists=True):
+    """
+    Create or refresh the wire MaxBox scale guide (never exported).
+
+    When update_if_exists is False and a MaxBox is already in the scene, returns
+    immediately without creating or moving it (import default).
+    """
+    scene = context.scene
     maxbox = _find_maxbox(scene)
+    created = False
+
+    if maxbox is not None and not update_if_exists:
+        return {
+            "maxbox": maxbox.name,
+            "created_maxbox": False,
+            "skipped_existing": True,
+        }
+
     if maxbox is None:
         mesh = bpy.data.meshes.new("MaxBox")
-        # Unit cube centered, then scale to MaxBox size.
-        verts = [
-            Vector((x, y, z))
-            for z in (-0.5, 0.5)
-            for y in (-0.5, 0.5)
-            for x in (-0.5, 0.5)
-        ]
-        # Correct corner order for a box (8 verts).
         verts = [
             Vector((-0.5, -0.5, -0.5)),
             Vector((0.5, -0.5, -0.5)),
@@ -83,7 +96,6 @@ def prepare_tmf_scene(context):
         created = True
 
     maxbox.location = (0.0, 0.0, MAXBOX_SIZE[2] * 0.5 - 0.2)
-    # Sit so Z covers roughly [-0.2, 2.3] like engine height band.
     maxbox.scale = MAXBOX_SIZE
     maxbox.display_type = "WIRE"
     maxbox.hide_render = True
@@ -92,9 +104,16 @@ def prepare_tmf_scene(context):
     return {
         "maxbox": maxbox.name,
         "created_maxbox": created,
+        "skipped_existing": False,
         "y_limits": ABS_Y_MM,
         "z_limits": ABS_Z_MM,
     }
+
+
+def prepare_tmf_scene(context):
+    """Metric units, tight view clips, and MaxBox scale guide."""
+    prepare_tmf_workspace(context)
+    return create_maxbox_guide(context, update_if_exists=True)
 
 
 class TMF_OT_prepare_scene(bpy.types.Operator):

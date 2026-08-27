@@ -9,10 +9,13 @@
 
 """Import .3ds files produced by this extension (TMF round-trip)."""
 
+import math
+
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 from .format_3ds import parse_3ds_file
+from .tmf_scene import create_maxbox_guide, prepare_tmf_workspace
 
 
 def _base_name(name):
@@ -23,6 +26,41 @@ def _base_name(name):
 
 def _is_maxbox(name):
     return _base_name(name).casefold() == "maxbox"
+
+
+def _is_projshad_name(name):
+    return _base_name(name).casefold() == "projshad"
+
+
+def _mesh_aabb_size(mesh):
+    if not mesh.vertices:
+        return None
+    xs = [v.co.x for v in mesh.vertices]
+    ys = [v.co.y for v in mesh.vertices]
+    zs = [v.co.z for v in mesh.vertices]
+    return (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+
+
+def restore_projshad_blender_orientation(mesh):
+    """
+    Undo export +90° X (TM Y-up shadow plane) back to a Blender Z-up ground plane.
+
+    Pivot stays at the mesh origin — only local vertex positions change, matching
+    the inverse of exporter.apply_projshad_tm_orientation().
+    """
+    size = _mesh_aabb_size(mesh)
+    if size is None:
+        return False
+    sx, sy, sz = size
+    # Already Blender flat (thin on Z) — nothing to do.
+    if sz <= sx * 0.15 and sz <= sy * 0.15:
+        return False
+    # TM-exported layout: thin on Y (wall in the XZ plane).
+    if sy <= sx * 0.15 and sy <= sz * 0.15:
+        mesh.transform(Matrix.Rotation(math.radians(-90.0), 4, "X"))
+        mesh.update()
+        return True
+    return False
 
 
 def _ensure_material(name, mapfile=None, search_dir=None):
@@ -120,12 +158,24 @@ def _unbake_verts(verts, loc, q_blender):
     return [tuple(inv @ Vector(v)) for v in verts]
 
 
-def do_import(context, filepath, link_collection=None):
+def do_import(
+    context,
+    filepath,
+    link_collection=None,
+    prepare_workspace=False,
+    create_maxbox=False,
+):
     """
     Import a TMF .3ds into the current scene.
 
-    Returns dict with keys: objects (list of names), skipped, materials.
+    prepare_workspace: metric units + view clips (no helpers).
+    create_maxbox: wire MaxBox guide when none exists in the scene.
+
+    Returns dict with keys: objects, skipped, materials, projshad_restored.
     """
+    if prepare_workspace:
+        prepare_tmf_workspace(context)
+
     parsed = parse_3ds_file(filepath)
     from pathlib import Path
 
@@ -136,6 +186,7 @@ def do_import(context, filepath, link_collection=None):
 
     created = []
     skipped = []
+    projshad_restored = False
 
     for obj_data in parsed.objects:
         name = obj_data.name or "Object"
@@ -153,6 +204,9 @@ def do_import(context, filepath, link_collection=None):
         mesh = bpy.data.meshes.new(name)
         mesh.from_pydata(local_verts, [], obj_data.faces)
         mesh.update()
+
+        if _is_projshad_name(name) and restore_projshad_blender_orientation(mesh):
+            projshad_restored = True
 
         if obj_data.uvs and len(obj_data.uvs) == len(local_verts):
             uv_layer = mesh.uv_layers.new(name="UVMap")
@@ -203,8 +257,14 @@ def do_import(context, filepath, link_collection=None):
         coll.objects.link(empty)
         created.append(empty.name)
 
+    maxbox_info = None
+    if create_maxbox:
+        maxbox_info = create_maxbox_guide(context, update_if_exists=False)
+
     return {
         "objects": created,
         "skipped": skipped,
         "materials": [m.name for m in parsed.materials if m.name],
+        "projshad_restored": projshad_restored,
+        "maxbox": maxbox_info,
     }
