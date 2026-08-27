@@ -21,16 +21,26 @@ jobs:
         run: |
           set -euo pipefail
           BLENDER_VERSION=5.2.0
-          BLENDER_DIR="$RUNNER_TEMP/blender-${BLENDER_VERSION}-linux-x64"
-          curl -fsSL "https://download.blender.org/release/Blender5.2/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
-            | tar -xJ -C "$RUNNER_TEMP"
+          ARCHIVE="blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+          curl -fsSL "https://download.blender.org/release/Blender5.2/${ARCHIVE}" \
+            -o "$RUNNER_TEMP/${ARCHIVE}"
+          tar -xJf "$RUNNER_TEMP/${ARCHIVE}" -C "$RUNNER_TEMP"
+          BLENDER_BIN="$(find "$RUNNER_TEMP" -maxdepth 3 -type f -name blender -executable | head -n 1)"
+          if [[ -z "$BLENDER_BIN" ]]; then
+            echo "error: blender binary not found after extract" >&2
+            find "$RUNNER_TEMP" -maxdepth 3 -type f | head -50 >&2
+            exit 1
+          fi
+          BLENDER_DIR="$(dirname "$BLENDER_BIN")"
           echo "$BLENDER_DIR" >> "$GITHUB_PATH"
-          blender --version
+          echo "BLENDER_BIN=$BLENDER_BIN" >> "$GITHUB_ENV"
+          "$BLENDER_BIN" --version
 
       - name: Package release (extension + bundle)
         run: bash scripts/package-release.sh
 
       - name: Verify bundle structure
+        id: artifacts
         run: |
           set -euo pipefail
           BUNDLE="$(ls -1 export_3ds_tmf-*-bundle.zip | head -n 1)"
@@ -40,17 +50,19 @@ jobs:
             echo "error: extension zip must not contain base-tmf-scene.blend" >&2
             exit 1
           fi
+          echo "ext_zip=$EXT" >> "$GITHUB_OUTPUT"
+          echo "bundle_zip=$BUNDLE" >> "$GITHUB_OUTPUT"
 
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
           name: export_3ds_tmf-extension
-          path: export_3ds_tmf-*.zip
+          path: ${{ steps.artifacts.outputs.ext_zip }}
           if-no-files-found: error
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: export_3ds_tmf-bundle
-          path: export_3ds_tmf-*-bundle.zip
+          path: ${{ steps.artifacts.outputs.bundle_zip }}
           if-no-files-found: error

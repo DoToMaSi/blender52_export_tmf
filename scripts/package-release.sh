@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if ! command -v blender >/dev/null 2>&1; then
+BLENDER="${BLENDER_BIN:-blender}"
+if [[ "$BLENDER" == "blender" ]] && ! command -v blender >/dev/null 2>&1; then
   echo "error: blender not on PATH (need Blender 5.2+)" >&2
   exit 1
 fi
@@ -47,10 +48,10 @@ for f in "${EXTENSION_FILES[@]}"; do
 done
 
 echo "==> extension validate (staged)"
-(cd "$STAGE" && blender --command extension validate)
+(cd "$STAGE" && "$BLENDER" --command extension validate)
 
 echo "==> extension build (staged)"
-(cd "$STAGE" && blender --command extension build)
+(cd "$STAGE" && "$BLENDER" --command extension build)
 
 BUILT_ZIP="$(ls -1 "$STAGE/${EXT_ID}-"*.zip | head -n 1)"
 if [[ ! -f "$BUILT_ZIP" ]]; then
