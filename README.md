@@ -13,23 +13,43 @@ TMF workflow reference: car model conversion tutorial by trick@ugghost.com (2008
 
 ## Installation
 
-### From GitHub Release (recommended)
+### From GitHub Release — full bundle (recommended for new users)
 
-1. Open [Releases](https://github.com/DoToMaSi/blender52_export_tmf/releases) and download the latest `export_3ds_tmf-<version>.zip`.
-2. In Blender: **Edit → Preferences → Get Extensions → Install from Disk** → select the zip.
-3. Optional: download `base-tmf-scene.blend` from the same release for a preconfigured TMF workspace (metric units, MaxBox, name collections).
+1. Open [Releases](https://github.com/DoToMaSi/blender52_export_tmf/releases) and download **`export_3ds_tmf-<version>-bundle.zip`**.
+2. Unzip. Layout:
+
+```
+export_3ds_tmf-<version>-bundle.zip
+├── template/
+│   └── base-tmf-scene.blend    # Preconfigured TMF workspace
+├── script/
+│   └── export_3ds_tmf-<version>.zip
+├── README.MD
+└── TUTORIAL.MD                 # Step-by-step authoring guide
+```
+
+3. Open **`template/base-tmf-scene.blend`** in Blender 5.2+ (metric units, MaxBox, name collections).
+4. Install the extension: **Edit → Preferences → Get Extensions → Install from Disk** → select **`script/export_3ds_tmf-<version>.zip`**.
+
+See **`TUTORIAL.MD`** in the bundle (source: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)) for scale, naming, pivots, and export workflow.
+
+### From GitHub Release — extension only
+
+If you already have a TMF scene, download **`export_3ds_tmf-<version>.zip`** (no template or tutorial) and install from disk as above.
 
 ### Build locally
 
 ```powershell
-# Windows
-.\scripts\ci-build.ps1
+# Windows — builds extension zip + bundle at repo root
+.\scripts\package-release.ps1
 
 # Linux / macOS (Blender 5.2+ on PATH)
-./scripts/ci-build.sh
+./scripts/package-release.sh
 ```
 
-Then install the generated `export_3ds_tmf-<version>.zip` from the repo root.
+Wrappers `scripts/ci-build.ps1` / `scripts/ci-build.sh` call the same packaging scripts.
+
+Then install `export_3ds_tmf-<version>.zip` from the repo root, or use the full `-bundle.zip` for distribution.
 
 ### Development (symlink)
 
@@ -39,23 +59,31 @@ Link this folder into a local extensions repository for live reload during devel
 
 | Workflow | Trigger | Result |
 |---|---|---|
-| **CI** | Push / PR to `master` | Validates manifest, builds zip, uploads artifact |
-| **Release** | Push tag `v*` (e.g. `v2.3.4`) | Builds zip + attaches `base-tmf-scene.blend` to a GitHub Release |
+| **CI** | Push / PR to `master` | Staged extension build, bundle zip, both uploaded as artifacts |
+| **Release** | Push tag `v*` (e.g. `v2.3.5`) | Publishes `export_3ds_tmf-<version>.zip` + `export_3ds_tmf-<version>-bundle.zip` |
 
 **Cutting a release**
 
 1. Bump `version` in `blender_manifest.toml`.
-2. Commit and push to `master`.
+2. Commit and push to `master` (include `docs/TUTORIAL.md` updates if any).
 3. Tag and push (tag must match manifest version):
 
 ```powershell
-git tag v2.3.4
-git push origin v2.3.4
+git tag v2.3.5
+git push origin v2.3.5
 ```
 
-GitHub Actions publishes the release automatically. Build artifacts (`*.zip`) are not stored in git — only produced by CI or local build scripts.
+GitHub Actions publishes both zips automatically. Build artifacts (`*.zip`, `build/`) are not stored in git — only produced by CI or `scripts/package-release.*`.
 
 ## Build and validate (manual)
+
+Extension build uses a **staged copy** of runtime files only (no template, docs, or scripts in the install zip):
+
+```powershell
+.\scripts\package-release.ps1
+```
+
+Or stage manually and run from `build/extension/`:
 
 ```powershell
 blender --command extension validate
@@ -166,22 +194,28 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 
 ```
 blender_export_tmf/
-├── .github/workflows/      # CI + release pipelines
-├── base-tmf-scene.blend      # Bundled starter scene (also on Releases)
-├── scripts/ci-build.ps1      # Local build (Windows)
-├── scripts/ci-build.sh       # Local build (Linux/macOS)
+├── .github/workflows/         # CI + release pipelines
+├── docs/
+│   └── TUTORIAL.md            # Copied to TUTORIAL.MD in release bundle
+├── template/
+│   └── base-tmf-scene.blend   # Starter scene (in release bundle)
+├── scripts/
+│   ├── package-release.ps1    # Local build + bundle (Windows)
+│   ├── package-release.sh     # Local build + bundle (Linux/macOS)
+│   ├── ci-build.ps1           # Wrapper → package-release.ps1
+│   └── ci-build.sh            # Wrapper → package-release.sh
 ├── blender_manifest.toml
 ├── __init__.py
-├── export_operator.py      # File > Export
-├── import_operator.py      # File > Import
-├── exporter.py             # 3DS binary export
-├── importer.py             # 3DS import + hub un-bake
-├── format_3ds.py           # Chunk read/write
-├── material_utils.py       # Principled BSDF + texture helpers
-├── tmf_validation.py       # Strict validation
-├── tmf_scene.py            # Prepare scene + validate operator
-├── tmf_helpers.py          # ProjShad / light spawners
-└── ui_panel.py             # View3D N-panel (TMF tab)
+├── export_operator.py         # File > Export
+├── import_operator.py         # File > Import
+├── exporter.py                # 3DS binary export
+├── importer.py                # 3DS import + hub un-bake
+├── format_3ds.py              # Chunk read/write
+├── material_utils.py          # Principled BSDF + texture helpers
+├── tmf_validation.py          # Strict validation
+├── tmf_scene.py               # Prepare scene + validate operator
+├── tmf_helpers.py             # ProjShad / light spawners
+└── ui_panel.py                # View3D N-panel (TMF tab)
 ```
 
 ## License

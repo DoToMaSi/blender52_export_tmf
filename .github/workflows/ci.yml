@@ -27,23 +27,30 @@ jobs:
           echo "$BLENDER_DIR" >> "$GITHUB_PATH"
           blender --version
 
-      - name: Validate extension manifest
-        run: blender --command extension validate
+      - name: Package release (extension + bundle)
+        run: bash scripts/package-release.sh
 
-      - name: Build extension zip
-        run: blender --command extension build
-
-      - name: Verify zip artifact
+      - name: Verify bundle structure
         run: |
           set -euo pipefail
-          ZIP="$(ls -1 export_3ds_tmf-*.zip | head -n 1)"
-          test -f "$ZIP"
-          echo "Built: $ZIP ($(wc -c < "$ZIP") bytes)"
-          unzip -l "$ZIP" | grep -E 'blender_manifest\.toml|__init__\.py|base-tmf-scene\.blend'
+          BUNDLE="$(ls -1 export_3ds_tmf-*-bundle.zip | head -n 1)"
+          EXT="$(ls -1 export_3ds_tmf-*.zip | grep -v bundle | head -n 1)"
+          unzip -l "$BUNDLE" | grep -E 'template/base-tmf-scene\.blend|script/export_3ds_tmf|README\.MD|TUTORIAL\.MD'
+          if unzip -l "$EXT" | grep -qi 'base-tmf-scene'; then
+            echo "error: extension zip must not contain base-tmf-scene.blend" >&2
+            exit 1
+          fi
 
-      - name: Upload build artifact
+      - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
           name: export_3ds_tmf-extension
           path: export_3ds_tmf-*.zip
+          if-no-files-found: error
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: export_3ds_tmf-bundle
+          path: export_3ds_tmf-*-bundle.zip
           if-no-files-found: error

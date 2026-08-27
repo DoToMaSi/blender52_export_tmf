@@ -5,8 +5,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
-# Blender extension build output (produced by CI / local `extension build`)
+# Blender extension build output (produced by CI / local package-release)
 *.zip
+build/
 
 # OS / editor
 .DS_Store

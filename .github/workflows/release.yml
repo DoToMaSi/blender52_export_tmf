@@ -25,9 +25,6 @@ jobs:
           echo "$BLENDER_DIR" >> "$GITHUB_PATH"
           blender --version
 
-      - name: Validate extension manifest
-        run: blender --command extension validate
-
       - name: Check tag matches manifest version
         run: |
           set -euo pipefail
@@ -35,27 +32,29 @@ jobs:
           MANIFEST_VERSION="$(grep -E '^version\s*=' blender_manifest.toml | sed -E 's/^version\s*=\s*"([^"]+)".*/\1/')"
           if [[ "$TAG" != "$MANIFEST_VERSION" ]]; then
             echo "Tag v${TAG} does not match blender_manifest.toml version ${MANIFEST_VERSION}" >&2
-            echo "Bump blender_manifest.toml, commit, then tag v${MANIFEST_VERSION}." >&2
             exit 1
           fi
           echo "Version OK: ${MANIFEST_VERSION}"
 
-      - name: Build extension zip
-        run: blender --command extension build
+      - name: Package release (extension + bundle)
+        run: bash scripts/package-release.sh
 
-      - name: Resolve zip path
-        id: zip
+      - name: Resolve artifact paths
+        id: artifacts
         run: |
           set -euo pipefail
-          ZIP="$(ls -1 export_3ds_tmf-*.zip | head -n 1)"
-          echo "path=$ZIP" >> "$GITHUB_OUTPUT"
-          echo "Release asset: $ZIP"
+          EXT_ZIP="$(ls -1 export_3ds_tmf-*.zip | grep -v bundle | head -n 1)"
+          BUNDLE_ZIP="$(ls -1 export_3ds_tmf-*-bundle.zip | head -n 1)"
+          echo "ext_zip=$EXT_ZIP" >> "$GITHUB_OUTPUT"
+          echo "bundle_zip=$BUNDLE_ZIP" >> "$GITHUB_OUTPUT"
+          echo "Extension: $EXT_ZIP"
+          echo "Bundle: $BUNDLE_ZIP"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.zip.outputs.path }}
-            base-tmf-scene.blend
+            ${{ steps.artifacts.outputs.ext_zip }}
+            ${{ steps.artifacts.outputs.bundle_zip }}
           generate_release_notes: true
           fail_on_unmatched_files: true
