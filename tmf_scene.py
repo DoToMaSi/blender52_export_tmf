@@ -239,7 +239,7 @@ class TMF_OT_validate_scene(bpy.types.Operator):
             for warn in validation.warnings:
                 lines.append(f"[WARN] {warn}")
             if not lines:
-                lines.append("OK — MaxBox clear; no advisories")
+                lines.append("OK — Strict clear; no advisories")
 
             if settings is not None:
                 settings.last_validation = "\n".join(lines)
@@ -258,14 +258,14 @@ class TMF_OT_validate_scene(bpy.types.Operator):
             if validation.ok:
                 self.report(
                     {"INFO"},
-                    f"MaxBox OK ({n} objects, {len(validation.warnings)} warning(s))",
+                    f"Strict OK ({n} objects, {len(validation.warnings)} warning(s))",
                 )
                 return {"FINISHED"}
 
             if len(validation.errors) > 8:
                 self.report(
                     {"ERROR"},
-                    f"...and {len(validation.errors) - 8} more MaxBox errors (see N-panel)",
+                    f"...and {len(validation.errors) - 8} more Strict errors (see N-panel)",
                 )
             return {"CANCELLED"}
         finally:

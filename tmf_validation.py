@@ -176,10 +176,15 @@ def mesh_export_names():
 ABS_Y_MM = (-3.0, 3.0)
 ABS_Z_MM = (-0.3, 2.2)
 
+# Advisory totals for High/Low Solid compile targets (warnings only).
 VERTEX_LIMITS = {
     "HIGH": 100_000,
     "LOW": 3_600,
 }
+
+# Hard 3DS / engine limit: vertex indices are uint16 → at most 65,536 verts per mesh
+# after triangulation and UV splits (same count the exporter writes).
+MAX_MESH_VERTICES = 65_536
 
 TRANSFORM_TOLERANCE = 1e-4
 ORIGIN_TOLERANCE = 1e-5
@@ -193,7 +198,7 @@ class ValidationResult:
     warnings: list = field(default_factory=list)
 
     def add_error(self, message):
-        """Strict blocker (absolute MaxBox extents)."""
+        """Strict blocker (MaxBox extents or per-mesh vertex limit)."""
         self.ok = False
         self.errors.append(message)
 
@@ -342,15 +347,29 @@ def count_export_vertices(mesh_objects):
     return total
 
 
+def count_mesh_export_vertices_safe(mesh):
+    """Per-mesh export vertex count (after UV splits), or 0 if unavailable."""
+    from .exporter import count_mesh_export_vertices
+
+    if mesh is None:
+        return 0
+    return count_mesh_export_vertices(mesh)
+
+
 def validate_export(context, mesh_objects, poly_target):
     """
     Validate collected export meshes.
 
-    Strict blockers (``errors`` / ``ok=False``): world verts of car body/wheel
-    meshes outside MaxBox Y/Z. Forever does not require a full United mesh set.
+    Strict blockers (``errors`` / ``ok=False``):
+    - World verts of car body/wheel meshes outside MaxBox Y/Z
+    - Any single mesh exceeding ``MAX_MESH_VERTICES`` (65,536) after UV splits
+
+    Forever does not require a full United mesh set. There is no hard total
+    vertex budget across the whole car — only the per-mesh 3DS limit.
 
     Advisories (``warnings``): missing recommended parts, ProjShad, scale,
-    loose verts, sBody origin, vertex budget, naming typos — never block Strict.
+    loose verts, sBody origin, High/Low poly-target totals, naming typos —
+    never block Strict.
     """
     result = ValidationResult()
     scene = context.scene
@@ -410,6 +429,18 @@ def validate_export(context, mesh_objects, poly_target):
             except Exception as exc:
                 result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
 
+        # Hard per-mesh 3DS limit (uint16 indices) — Strict blocker for every mesh.
+        try:
+            mesh_vert_count = count_mesh_export_vertices_safe(mesh)
+        except Exception as exc:
+            result.add_warning(f"{ob.name}: per-mesh vertex count failed ({exc})")
+            mesh_vert_count = 0
+        if mesh_vert_count > MAX_MESH_VERTICES:
+            result.add_error(
+                f"{ob.name}: {mesh_vert_count} vertices exceeds per-mesh limit "
+                f"of {MAX_MESH_VERTICES} (3DS uint16 index — split the mesh)"
+            )
+
         # Projector footprint — advisory (zero size → Quality 2 bbox 0).
         if is_projector_mesh(ob.name):
             dims = ob.dimensions
@@ -443,6 +474,7 @@ def validate_export(context, mesh_objects, poly_target):
                 f"({loc.x:.6f}, {loc.y:.6f}, {loc.z:.6f})"
             )
 
+    # Whole-car High/Low targets remain advisory only (no hard total limit).
     vertex_limit = VERTEX_LIMITS.get(poly_target, VERTEX_LIMITS["HIGH"])
     try:
         vertex_count = count_export_vertices(mesh_objects)
@@ -451,8 +483,9 @@ def validate_export(context, mesh_objects, poly_target):
         vertex_count = 0
     if vertex_count > vertex_limit:
         result.add_warning(
-            f"Vertex count {vertex_count} exceeds {poly_target} poly target "
-            f"({vertex_limit}) — may fail Low/High Solid compile"
+            f"Total vertex count {vertex_count} exceeds {poly_target} poly target "
+            f"({vertex_limit}) — advisory only; hard limit is "
+            f"{MAX_MESH_VERTICES} per mesh"
         )
 
     if not mesh_objects:

@@ -34,7 +34,10 @@ In Blender:
 
 - **1 Blender unit ≈ 1 mm** (Unit Scale 1.0, Metric).
 - Use the wire **MaxBox** object as a visual limit while modeling.
-- **Strict** export mode blocks only when **body/wheel** vertices fall outside Y ∈ [-3, 3] and Z ∈ [-0.3, 2.2].
+- **Strict** export mode blocks when:
+  - **body/wheel** vertices fall outside Y ∈ [-3, 3] and Z ∈ [-0.3, 2.2], or
+  - **any mesh** exceeds **65,536** vertices after UV splits (3DS limit).
+- There is no hard total vertex budget for the whole car.
 
 ---
 
@@ -112,12 +115,15 @@ See [Counting Vertices](https://www.ugghost.com/tutorials/tmu-f/vertices.htm).
 
 | Target | Limit | In-game solid |
 |---|---|---|
-| **High Poly** | ~100,000 vertices | MainBodyHigh.Solid.gbx |
-| **Low Poly** | ~3,600 vertices | MainBody.Solid.gbx |
+| **High Poly** | ~100,000 vertices (advisory) | MainBodyHigh.Solid.gbx |
+| **Low Poly** | ~3,600 vertices (advisory) | MainBody.Solid.gbx |
+| **Per mesh (hard)** | **65,536** vertices | 3DS uint16 index limit |
+
+There is **no hard total** vertex budget for the whole car. The real engine/format limit is **65,536 vertices per mesh** (after triangulation and UV splits). **Strict** mode blocks export if any single mesh exceeds that.
+
+High/Low poly targets remain **advisory warnings** only.
 
 Vertex count may **increase after export** (UV splits). Use **Validate TMF Scene** or export with **Verbose Log** to see the count the exporter will write.
-
-Poly target is an **advisory warning** — it does not block Strict mode.
 
 ---
 
@@ -133,8 +139,8 @@ Poly target is an **advisory warning** — it does not block Strict mode.
 
 Runs the same checks as export **without writing a file**:
 
-- **Strict (errors):** body/wheel verts outside MaxBox Y/Z only.
-- **Warnings:** missing recommended parts, loose verts, unapplied scale, poly budget, missing ProjShad, etc.
+- **Strict (errors):** body/wheel verts outside MaxBox Y/Z, or any mesh over 65,536 verts.
+- **Warnings:** missing recommended parts, loose verts, unapplied scale, High/Low poly budget, missing ProjShad, etc.
 
 ### Helpers
 
@@ -157,8 +163,8 @@ Spawn common meshes (does not replace your body work):
 
 | Option | Purpose |
 |---|---|
-| **Strict** | Block export only on MaxBox Y/Z failures (body/wheels) |
-| **Poly Target** | High / Low — advisory vertex budget |
+| **Strict** | Block on MaxBox Y/Z (body/wheels) **or** any mesh over 65,536 verts |
+| **Poly Target** | High / Low — advisory total vertex budget (not a hard car-wide limit) |
 | **Selection Only** | Export only selected allowlisted meshes |
 | **Verbose Log** | Writes `.tmf-export.log` next to the `.3ds` |
 
@@ -201,8 +207,8 @@ The `.3ds` from this extension is imported in-game to produce the `.Solid.gbx` f
 
 | Problem | What to check |
 |---|---|
-| Export blocked | MaxBox Y/Z on **body/wheels** — read N-panel / console errors |
-| Warnings only | Missing wheels/glass, loose verts, scale — export still allowed |
+| Export blocked | MaxBox Y/Z on **body/wheels**, or any mesh over **65,536** verts — read N-panel / console errors |
+| Warnings only | Missing wheels/glass, loose verts, scale, High/Low totals — export still allowed |
 | Model invisible in game | Object naming, vertex count, scale, silent `.3ds` import failure |
 | Wrong paint / details | UV layout; Diffuse vs Details assignment |
 | Wheels float or don’t spin | Hub **location** must stay at wheel center |

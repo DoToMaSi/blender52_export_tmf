@@ -48,12 +48,13 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_strict: bpy.props.BoolProperty(
         name="Strict",
         description=(
-            "Block export only when car body/wheel world vertices fall outside the TMF "
-            "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm). Forever does not require a "
-            "full United mesh set — missing parts, loose verts, scale, ProjShad, and "
-            "vertex budget are always reported as warnings and never block Strict. "
-            "ProjShad / light helpers are excluded from MaxBox checks (large shadow "
-            "planes are valid). Rotation is not checked except via resulting world verts"
+            "Block export when: (1) car body/wheel world vertices fall outside the TMF "
+            "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm), or (2) any single mesh "
+            "exceeds 65,536 vertices after UV splits (3DS uint16 limit). Forever does "
+            "not require a full United mesh set — missing parts, loose verts, scale, "
+            "ProjShad, and High/Low total budgets are warnings only. ProjShad / light "
+            "helpers are excluded from MaxBox checks. Rotation is not checked except "
+            "via resulting world verts"
         ),
         default=True,
     )
@@ -71,12 +72,13 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     poly_target: bpy.props.EnumProperty(
         name="Poly Target",
         description=(
-            "Advisory vertex budget (warnings only — does not block Strict). "
+            "Advisory whole-car vertex budget (warnings only — does not block Strict). "
+            "Hard limit is 65,536 vertices per mesh. "
             "High ≈ MainBodyHigh.Solid.gbx, Low ≈ MainBody.Solid.gbx"
         ),
         items=(
-            ("HIGH", "High Poly", "Up to 100,000 vertices (MainBodyHigh.Solid.gbx)"),
-            ("LOW", "Low Poly", "Up to 3,600 vertices (MainBody.Solid.gbx)"),
+            ("HIGH", "High Poly", "Advisory up to 100,000 total vertices (MainBodyHigh.Solid.gbx)"),
+            ("LOW", "Low Poly", "Advisory up to 3,600 total vertices (MainBody.Solid.gbx)"),
         ),
         default="HIGH",
     )
@@ -142,8 +144,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             if self.use_strict:
                 if not validation.ok:
                     if verbose:
-                        print("----- Strict MaxBox FAILED -----")
-                        log_lines.append("----- Strict MaxBox FAILED -----")
+                        print("----- Strict FAILED -----")
+                        log_lines.append("----- Strict FAILED -----")
                         for error in validation.errors:
                             line = f"  [ERR] {error}"
                             print(line)
@@ -153,15 +155,15 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     if len(validation.errors) > 8:
                         self.report(
                             {"ERROR"},
-                            f"...and {len(validation.errors) - 8} more MaxBox errors",
+                            f"...and {len(validation.errors) - 8} more Strict errors",
                         )
                     return {"CANCELLED"}
                 if verbose:
-                    print("----- Strict MaxBox OK -----")
-                    log_lines.append("----- Strict MaxBox OK -----")
+                    print("----- Strict OK -----")
+                    log_lines.append("----- Strict OK -----")
             elif verbose:
                 log_lines.append(
-                    "Strict off — MaxBox errors (if any) were not enforced"
+                    "Strict off — MaxBox / per-mesh vertex errors (if any) were not enforced"
                 )
                 if validation.errors:
                     for error in validation.errors:
