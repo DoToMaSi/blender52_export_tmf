@@ -50,11 +50,10 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         description=(
             "Block export when: (1) car body/wheel world vertices fall outside the TMF "
             "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm), or (2) any single mesh "
-            "exceeds 65,536 vertices after UV splits (3DS uint16 limit). Forever does "
-            "not require a full United mesh set — missing parts, loose verts, scale, "
-            "ProjShad, and High/Low total budgets are warnings only. ProjShad / light "
-            "helpers are excluded from MaxBox checks. Rotation is not checked except "
-            "via resulting world verts"
+            "exceeds 65,536 vertices after UV splits (3DS uint16 limit). Warnings cover "
+            "unapplied scale, bad locations, and ProjShad / projector rotation "
+            "(local Y should point up) — not missing mesh names. ProjShad / light "
+            "helpers are excluded from MaxBox checks"
         ),
         default=True,
     )

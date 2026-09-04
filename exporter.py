@@ -1154,13 +1154,6 @@ def do_export(
             _vlog(verbose, "  No material/UV warnings.", log_lines)
 
         present = set(name_to_id.keys())
-        missing_req = [n for n in REQUIRED_MESHES if n not in present]
-        if missing_req:
-            _vlog(
-                verbose,
-                f"  [WARN] missing required meshes in file: {', '.join(missing_req)}",
-                log_lines,
-            )
         if any(is_projector_mesh(n) and n.casefold().startswith("proj") for n in present) or (
             "ProjShad" in present
         ):
@@ -1169,21 +1162,8 @@ def do_export(
                 "  [OK] ProjShad mesh in .3ds (Quality 2 projector)",
                 log_lines,
             )
-        else:
-            _vlog(
-                verbose,
-                "  [WARN] ProjShad mesh missing from .3ds "
-                "(Quality 2 bounding box → 0 — keep mesh, not just .dds)",
-                log_lines,
-            )
         if any(is_projector_mesh(n) and n.casefold().startswith("lightf") for n in present):
             _vlog(verbose, "  [OK] LightFProj mesh in .3ds", log_lines)
-        else:
-            _vlog(
-                verbose,
-                "  [INFO] LightFProj mesh not in .3ds (optional)",
-                log_lines,
-            )
         if "MaxBox" in present or "Maxbox" in present:
             _vlog(verbose, "  [WARN] MaxBox was written (should be blacklisted)", log_lines)
         else:

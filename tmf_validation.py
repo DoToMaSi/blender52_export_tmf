@@ -10,8 +10,7 @@
 from dataclasses import dataclass, field
 
 # Classic United tutorial car parts. Forever can import a single mesh (e.g. only
-# sBody); these names are recommended completeness checks (warnings), not Strict
-# blockers.
+# sBody); missing names are not warned — export whatever is present.
 RECOMMENDED_MESHES = (
     "sBody",
     "dBody",
@@ -24,6 +23,12 @@ RECOMMENDED_MESHES = (
     "sRLWheel",
     "dRRWheel",
     "sRRWheel",
+)
+
+# Driver head (bobbing physics). s = Diffuse.dds, d = Details.dds.
+OPTIONAL_CAR_MESHES = (
+    "sPilHead",
+    "dPilHead",
 )
 
 # Back-compat alias used by exporter allowlist / logs.
@@ -107,9 +112,11 @@ TMF_NAME_GUIDE_MESHES = (
     "LightRL",
     "LightRR",
     "ProjShad",
+    "dPilHead",
     "sBody",
     "sFLWheel",
     "sFRWheel",
+    "sPilHead",
     "sRLWheel",
     "sRRWheel",
 )
@@ -168,7 +175,11 @@ def subject_to_strict_extents(name):
 
 def mesh_export_names():
     """Object names that receive a full mesh chunk in the .3ds."""
-    return frozenset(RECOMMENDED_MESHES) | frozenset(PROJECTOR_MESHES)
+    return (
+        frozenset(RECOMMENDED_MESHES)
+        | frozenset(OPTIONAL_CAR_MESHES)
+        | frozenset(PROJECTOR_MESHES)
+    )
 
 # Absolute world-space limits in millimeters (TMF Maxbox / engine space).
 # These are real engine limits (~6×3×2.5 mm box) — NOT meters×1000.
@@ -356,6 +367,17 @@ def count_mesh_export_vertices_safe(mesh):
     return count_mesh_export_vertices(mesh)
 
 
+def _local_y_world_up_dot(ob):
+    """How much the object's local +Y aligns with world +Z (Blender up)."""
+    from mathutils import Vector
+
+    y_axis = ob.matrix_world.to_3x3() @ Vector((0.0, 1.0, 0.0))
+    if y_axis.length < TRANSFORM_TOLERANCE:
+        return 0.0
+    y_axis.normalize()
+    return float(y_axis.z)
+
+
 def validate_export(context, mesh_objects, poly_target):
     """
     Validate collected export meshes.
@@ -364,33 +386,16 @@ def validate_export(context, mesh_objects, poly_target):
     - World verts of car body/wheel meshes outside MaxBox Y/Z
     - Any single mesh exceeding ``MAX_MESH_VERTICES`` (65,536) after UV splits
 
-    Forever does not require a full United mesh set. There is no hard total
-    vertex budget across the whole car — only the per-mesh 3DS limit.
+    Forever does not require a full United mesh set. Missing meshes are not warned.
 
-    Advisories (``warnings``): missing recommended parts, ProjShad, scale,
-    loose verts, sBody origin, High/Low poly-target totals, naming typos —
-    never block Strict.
+    Advisories (``warnings``): unapplied scale, bad locations (sBody origin),
+    ProjShad / light rotation (local Y should point up), ProjShad footprint —
+    never block Strict. High/Low poly totals are not warned.
     """
     result = ValidationResult()
     scene = context.scene
 
     mesh_names = {ob.name for ob, _ in mesh_objects}
-
-    for recommended in RECOMMENDED_MESHES:
-        if recommended not in mesh_names:
-            result.add_warning(
-                f"Missing recommended mesh: {recommended} "
-                f"(Forever can still import a partial car)"
-            )
-
-    has_projshad = any(
-        _strip_blender_suffix(n).casefold() == "projshad" for n in mesh_names
-    )
-    if not has_projshad:
-        result.add_warning(
-            "Missing ProjShad mesh (Quality 2 shadow may be wrong — "
-            "ProjShad.dds in the zip is not enough)"
-        )
 
     checked = set()
     for ob, mesh in mesh_objects:
@@ -412,14 +417,24 @@ def validate_export(context, mesh_objects, poly_target):
                 f"(Apply Scale recommended)"
             )
 
-        # Rotation is never a separate check — only world-space verts vs MaxBox.
-
-        if not is_projector_mesh(ob.name) and not is_optional_light_helper(ob.name):
-            loose = count_loose_vertices(mesh)
-            if loose > 0:
+        # ProjShad / light helpers: local Y should point roughly world-up (TM pivot).
+        if is_projector_mesh(ob.name) or is_optional_light_helper(ob.name):
+            up_dot = _local_y_world_up_dot(ob)
+            base = _strip_blender_suffix(ob.name)
+            # Front lights often face the car (+Y toward center) — only enforce
+            # Y-up strongly for ProjShad. Light helpers still warn if Y is almost
+            # horizontal (clearly wrong pivot).
+            if base.casefold() == "projshad":
+                if up_dot < 0.7:
+                    result.add_warning(
+                        f"{ob.name}: local Y should point up "
+                        f"(world-up alignment {up_dot:.2f}; "
+                        f"use Helpers → ProjShad or rotate so Y is up)"
+                    )
+            elif abs(up_dot) < 0.15 and base.casefold().startswith("lightfproj"):
                 result.add_warning(
-                    f"{ob.name}: has {loose} loose/disconnected vertices "
-                    f"not used by any face"
+                    f"{ob.name}: local Y is nearly horizontal "
+                    f"(world-up alignment {up_dot:.2f})"
                 )
 
         if subject_to_strict_extents(ob.name):
@@ -474,29 +489,7 @@ def validate_export(context, mesh_objects, poly_target):
                 f"({loc.x:.6f}, {loc.y:.6f}, {loc.z:.6f})"
             )
 
-    # Whole-car High/Low targets remain advisory only (no hard total limit).
-    vertex_limit = VERTEX_LIMITS.get(poly_target, VERTEX_LIMITS["HIGH"])
-    try:
-        vertex_count = count_export_vertices(mesh_objects)
-    except Exception as exc:
-        result.add_warning(f"Vertex count failed ({exc})")
-        vertex_count = 0
-    if vertex_count > vertex_limit:
-        result.add_warning(
-            f"Total vertex count {vertex_count} exceeds {poly_target} poly target "
-            f"({vertex_limit}) — advisory only; hard limit is "
-            f"{MAX_MESH_VERTICES} per mesh"
-        )
-
     if not mesh_objects:
         result.add_error("No objects selected for export")
-
-    known = RECOMMENDED_MESHES + PROJECTOR_MESHES + OPTIONAL_MESHES
-    for name in sorted(mesh_names):
-        for recommended in known:
-            if recommended not in mesh_names and name.lower() == recommended.lower():
-                result.add_warning(
-                    f"Object '{name}' looks like '{recommended}' but spelling/case differs"
-                )
 
     return result

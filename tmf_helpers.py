@@ -35,23 +35,21 @@ def _make_material(name, mapfile=None):
     return mat
 
 
-def _plane_mesh(name, size_x, size_y):
-    """XY plane centered at origin, facing +Z (Blender ground)."""
+def _plane_mesh_xz(name, size_x, size_z):
+    """XZ plane centered at origin, normal +Y (TrackMania Y-up ground plane)."""
     mesh = bpy.data.meshes.new(name)
-    hx, hy = size_x * 0.5, size_y * 0.5
+    hx, hz = size_x * 0.5, size_z * 0.5
     verts = [
-        Vector((-hx, -hy, 0.0)),
-        Vector((hx, -hy, 0.0)),
-        Vector((hx, hy, 0.0)),
-        Vector((-hx, hy, 0.0)),
+        Vector((-hx, 0.0, -hz)),
+        Vector((hx, 0.0, -hz)),
+        Vector((hx, 0.0, hz)),
+        Vector((-hx, 0.0, hz)),
     ]
     faces = [(0, 1, 2, 3)]
     mesh.from_pydata(verts, [], faces)
     mesh.update()
-    # Simple UV covering 0..1
     mesh.uv_layers.new(name="UVMap")
     uv = mesh.uv_layers.active.data
-    # 4 loops for one face
     uv[0].uv = (0.0, 0.0)
     uv[1].uv = (1.0, 0.0)
     uv[2].uv = (1.0, 1.0)
@@ -87,6 +85,13 @@ def _box_mesh(name, size):
 
 
 def create_projshad(context, size=(2.6, 5.6), replace=False):
+    """
+    Spawn ProjShad with TrackMania pivot orientation: local **Y is up**.
+
+    Mesh is an XZ ground plane (thin on Y). Object rotation +90° X lays it flat
+    on the Blender ground so local Y maps to world Z. Export still applies the
+    TM +90° X bake when needed after world-matrix transform.
+    """
     name = "ProjShad"
     if not replace and not _ensure_unique_object(name):
         return None, f"{name} already exists"
@@ -96,9 +101,12 @@ def create_projshad(context, size=(2.6, 5.6), replace=False):
             if base.casefold() == name.casefold():
                 bpy.data.objects.remove(ob, do_unlink=True)
 
-    mesh = _plane_mesh(name, size[0], size[1])
+    # size = (width X, length along car). Local Z carries length before +90° X.
+    mesh = _plane_mesh_xz(name, size[0], size[1])
     ob = bpy.data.objects.new(name, mesh)
     ob.location = (0.0, 0.0, 0.0114)
+    # Local Y → world Z (up). Plane lies flat in the Blender viewport.
+    ob.rotation_euler = (math.pi * 0.5, 0.0, 0.0)
     mat = _make_material("ProjShad", "ProjShad.dds")
     if mesh.materials:
         mesh.materials[0] = mat
@@ -108,7 +116,7 @@ def create_projshad(context, size=(2.6, 5.6), replace=False):
     return ob, None
 
 
-def create_lightfproj(context, location=(0.0, -2.2707, 0.5505), size=0.5, replace=False):
+def create_lightfproj(context, location=(0.0, -2.27, 0.55), size=0.5, replace=False):
     name = "LightFProj"
     if not replace and not _ensure_unique_object(name):
         return None, f"{name} already exists"
@@ -127,12 +135,13 @@ def create_lightfproj(context, location=(0.0, -2.2707, 0.5505), size=0.5, replac
     return ob, None
 
 
-# Defaults from successful Burnout Factory GT export log (2.2.21).
+# Neutral defaults centered on X=0 (not tied to a specific donor car).
+# Front/rear pairs are mirrored; Y/Z sit in a typical TMF envelope for easy tweaking.
 _LIGHT_DEFAULTS = (
-    ("LightFL1", (0.6752, -2.1395, 0.6279), (0.0, 0.0, 0.0)),
-    ("LightFR1", (-0.6213, -2.1395, 0.6279), (0.0, 0.0, 0.0)),
-    ("LightRL", (0.5333, 2.3143, 0.7461), (0.0, 0.0, math.pi)),
-    ("LightRR", (-0.5533, 2.3143, 0.7461), (0.0, 0.0, math.pi)),
+    ("LightFL1", (0.65, -2.14, 0.63), (0.0, 0.0, 0.0)),
+    ("LightFR1", (-0.65, -2.14, 0.63), (0.0, 0.0, 0.0)),
+    ("LightRL", (0.54, 2.31, 0.75), (0.0, 0.0, math.pi)),
+    ("LightRR", (-0.54, 2.31, 0.75), (0.0, 0.0, math.pi)),
 )
 
 
@@ -191,7 +200,7 @@ def create_all_helpers(context, replace=False):
 
 
 class TMF_OT_add_projshad(bpy.types.Operator):
-    """Create a flat ProjShad ground plane (export applies TM Y-up orient)"""
+    """Create ProjShad with Y-up pivot (TM shadow plane; flat in the viewport)"""
 
     bl_idname = "tmf.add_projshad"
     bl_label = "Add ProjShad"

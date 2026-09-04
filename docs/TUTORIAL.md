@@ -51,10 +51,11 @@ In Blender:
 | `dBody` | Details — lights, trim, interior (Details.dds) |
 | `gBody` | Glass / transparent parts (Details.dds) |
 | `dFLWheel`, `sFLWheel`, … | Tires (`d`) and rims (`s`) per corner |
+| `sPilHead`, `dPilHead` | Driver head (in-game bobbing); Diffuse / Details |
 
 Suffixes: **FL**, **FR**, **RL**, **RR**.
 
-**TrackMania Forever** can import a **partial** car (even a single `sBody`). The full United set above is recommended for complete cars but is not a hard export blocker — missing parts show as **warnings** only.
+**TrackMania Forever** can import a **partial** car (even a single `sBody`). Missing parts are **not** warned — export whatever you have.
 
 ### Suspension (optional)
 
@@ -88,7 +89,7 @@ See [Placing the Pivots](https://www.ugghost.com/tutorials/tmu-f/pivots.htm).
 | **Wheels** | Pivot at hub center; keep **location** at the hub (do not Apply Location — wheels must spin in-game) |
 | **sBody** | Prefer origin at `(0, 0, 0)` for suspension anchoring (warning if not) |
 | **Light helpers** | Tiny meshes aimed so local **+Y points toward the car center**; rear lights often use rot Z = π |
-| **ProjShad** | Flat ground plane in Blender (Z-up); export applies TM Y-up orient automatically |
+| **ProjShad** | Flat ground plane with **local Y up** (+90° X); export applies TM orient as needed |
 
 **Apply Scale** on body/wheel meshes when practical. **Rotation** may stay unapplied where needed for light aim.
 
@@ -102,8 +103,8 @@ From the [conversion guide](https://www.ugghost.com/tutorials/tmu-f/3d_model_con
 
 | Meshes | Texture |
 |---|---|
-| `sBody`, `sXXWheel` | **Diffuse.dds** — no overlapping UVs on `sBody` |
-| `dBody`, `gBody`, `dXXWheel` | **Details.dds** — glass/tires in empty areas of the details map |
+| `sBody`, `sXXWheel`, `sPilHead` | **Diffuse.dds** — no overlapping UVs on `sBody` |
+| `dBody`, `gBody`, `dXXWheel`, `dPilHead` | **Details.dds** — glass/tires/head in empty areas of the details map |
 
 The game binds textures from the **car zip**, not from the `.3ds` file alone.
 
@@ -140,7 +141,7 @@ Vertex count may **increase after export** (UV splits). Use **Validate TMF Scene
 Runs the same checks as export **without writing a file**:
 
 - **Strict (errors):** body/wheel verts outside MaxBox Y/Z, or any mesh over 65,536 verts.
-- **Warnings:** missing recommended parts, loose verts, unapplied scale, High/Low poly budget, missing ProjShad, etc.
+- **Warnings:** unapplied scale, bad locations (sBody origin), ProjShad local Y not up / small footprint — **not** missing mesh names.
 
 ### Helpers
 
@@ -208,7 +209,7 @@ The `.3ds` from this extension is imported in-game to produce the `.Solid.gbx` f
 | Problem | What to check |
 |---|---|
 | Export blocked | MaxBox Y/Z on **body/wheels**, or any mesh over **65,536** verts — read N-panel / console errors |
-| Warnings only | Missing wheels/glass, loose verts, scale, High/Low totals — export still allowed |
+| Warnings only | Unapplied scale, sBody origin, ProjShad Y-up / footprint — export still allowed |
 | Model invisible in game | Object naming, vertex count, scale, silent `.3ds` import failure |
 | Wrong paint / details | UV layout; Diffuse vs Details assignment |
 | Wheels float or don’t spin | Hub **location** must stay at wheel center |

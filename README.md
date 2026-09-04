@@ -121,7 +121,7 @@ blender --command extension build
 1. Prepare the scene (naming, scale, helpers).
 2. **File → Export → 3DS for TMF (.3ds)**.
 3. Choose **Poly Target** (High: 100k verts, Low: 3.6k verts) — advisory only.
-4. Leave **Strict** on to block exports when **body/wheel** verts fall outside MaxBox (Y ∈ [-3, 3], Z ∈ [-0.3, 2.2]) **or** any single mesh exceeds **65,536** vertices after UV splits (3DS uint16 limit). There is no hard total vertex budget for the whole car. Forever accepts partial cars (even a single `sBody`); missing classic United parts, loose verts, scale, ProjShad, and High/Low poly-target totals are always **warnings**. `ProjShad` / light helpers are excluded from MaxBox checks.
+4. Leave **Strict** on to block exports when **body/wheel** verts fall outside MaxBox (Y ∈ [-3, 3], Z ∈ [-0.3, 2.2]) **or** any single mesh exceeds **65,536** vertices after UV splits (3DS uint16 limit). There is no hard total vertex budget for the whole car. Forever accepts partial cars. Warnings cover **unapplied scale**, **bad locations** (e.g. sBody origin), and **ProjShad rotation** (local Y should point up) — not missing mesh names. `ProjShad` / light helpers are excluded from MaxBox checks.
 5. Import the `.3ds` in-game: **Help → Custom data → Car geometry**.
 
 Strict blocks on MaxBox failures and per-mesh vertex overflow. Warnings always appear (Info header / console / N-panel) whether Strict is on or off.
@@ -146,6 +146,7 @@ Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 | `dBody` | Details (lights, interior, trim) |
 | `gBody` | Glass / transparent parts |
 | `dFLWheel`, `sFLWheel`, … | Tires (d) and rims (s) per corner |
+| `sPilHead`, `dPilHead` | Driver head (bobbing physics); Diffuse / Details |
 
 Wheel suffixes: `FL`, `FR`, `RL`, `RR`. Keep **hub origins** on wheels (do not Apply Location).
 
@@ -153,7 +154,7 @@ Wheel suffixes: `FL`, `FR`, `RL`, `RR`. Keep **hub origins** on wheels (do not A
 
 | Name | Role |
 |---|---|
-| `ProjShad` | Ground fake-shadow plane (flat Z-up OK; export auto +90° X if needed) |
+| `ProjShad` | Ground fake-shadow plane — helper spawns with **local Y up** (+90° X); export auto-orients for TM |
 | `LightFProj` | Headlight projector |
 | `LightFL1` / `LightFR1` / `LightRL` / `LightRR` | Flare origins (tiny meshes; rear often rot Z = π) |
 
@@ -166,7 +167,7 @@ Wheel suffixes: `FL`, `FR`, `RL`, `RR`. Keep **hub origins** on wheels (do not A
 - Keep body/wheel world verts inside MaxBox: **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]** (Strict)
 - Keep **each mesh** at or below **65,536** export vertices after UV splits (Strict)
 - Apply Scale when practical; rotation may stay unapplied for light aim
-- Prefer no loose vertices on body meshes (warning only)
+- **ProjShad**: local **Y should point up** (Helpers spawn this correctly)
 - Prefer `sBody` at `(0, 0, 0)` for suspension anchoring (warning only)
 - Car zip still needs `Diffuse.dds` / `Details.dds` / `ProjShad.dds` / `Icon.dds`
 
@@ -192,7 +193,7 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 | Problem | Check |
 |---|---|
 | Export / validate blocked | MaxBox Y/Z on body/wheels, or any mesh over 65,536 verts — ProjShad excluded from MaxBox |
-| Soft warnings | Missing recommended parts, loose verts, scale, High/Low poly target — export still allowed |
+| Soft warnings | Unapplied scale, sBody origin, ProjShad Y-up rotation / footprint — not missing meshes |
 | Model invisible in game | Object spelling, vertex count, scale |
 | Wrong paint/details | UV layout and Diffuse vs Details assignment |
 | Import hubs wrong | Round-trip is tuned for this exporter’s files |
