@@ -234,16 +234,20 @@ class TMF_OT_validate_scene(bpy.types.Operator):
             settings = getattr(context.scene, "tmf_settings", None)
 
             lines = []
+            for error in validation.format_errors:
+                lines.append(f"[FORMAT] {error}")
             for error in validation.errors:
                 lines.append(f"[ERR] {error}")
             for warn in validation.warnings:
                 lines.append(f"[WARN] {warn}")
             if not lines:
-                lines.append("OK — Strict clear; no advisories")
+                lines.append("OK — format + Strict clear; no advisories")
 
             if settings is not None:
                 settings.last_validation = "\n".join(lines)
 
+            for error in validation.format_errors[:8]:
+                self.report({"ERROR"}, error)
             for error in validation.errors[:8]:
                 self.report({"ERROR"}, error)
             for warn in validation.warnings[:8]:
@@ -255,17 +259,22 @@ class TMF_OT_validate_scene(bpy.types.Operator):
                 )
 
             n = len(mesh_objects) + len(empty_objects)
-            if validation.ok:
+            if validation.format_ok and validation.ok:
                 self.report(
                     {"INFO"},
-                    f"Strict OK ({n} objects, {len(validation.warnings)} warning(s))",
+                    f"OK ({n} objects, {len(validation.warnings)} warning(s))",
                 )
                 return {"FINISHED"}
 
-            if len(validation.errors) > 8:
+            extra = (
+                len(validation.format_errors)
+                + len(validation.errors)
+                - 8
+            )
+            if extra > 0:
                 self.report(
                     {"ERROR"},
-                    f"...and {len(validation.errors) - 8} more Strict errors (see N-panel)",
+                    f"...and {extra} more errors (see N-panel)",
                 )
             return {"CANCELLED"}
         finally:

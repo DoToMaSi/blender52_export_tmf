@@ -48,10 +48,10 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_strict: bpy.props.BoolProperty(
         name="Strict",
         description=(
-            "Block export when: (1) car body/wheel world vertices fall outside the TMF "
-            "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm), or (2) any single mesh "
-            "exceeds 65,536 vertices after UV splits (3DS uint16 limit). Warnings cover "
-            "unapplied scale, bad locations, and ProjShad / projector rotation "
+            "Block export when car body/wheel world vertices fall outside the TMF "
+            "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm). Per-mesh vertex overflow "
+            "(over 65,535 — 3DS uint16) always blocks export even when Strict is off. "
+            "Warnings cover unapplied scale, bad locations, and ProjShad rotation "
             "(local Y should point up) — not missing mesh names. ProjShad / light "
             "helpers are excluded from MaxBox checks"
         ),
@@ -140,6 +140,24 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                         f"...and {len(validation.warnings) - 8} more warnings",
                     )
 
+            # Hard 3DS format limits — always block (Strict on or off).
+            if not validation.format_ok:
+                if verbose:
+                    print("----- Format limit FAILED -----")
+                    log_lines.append("----- Format limit FAILED -----")
+                    for error in validation.format_errors:
+                        line = f"  [ERR] {error}"
+                        print(line)
+                        log_lines.append(line)
+                for error in validation.format_errors[:8]:
+                    self.report({"ERROR"}, error)
+                if len(validation.format_errors) > 8:
+                    self.report(
+                        {"ERROR"},
+                        f"...and {len(validation.format_errors) - 8} more format errors",
+                    )
+                return {"CANCELLED"}
+
             if self.use_strict:
                 if not validation.ok:
                     if verbose:
@@ -162,7 +180,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     log_lines.append("----- Strict OK -----")
             elif verbose:
                 log_lines.append(
-                    "Strict off — MaxBox / per-mesh vertex errors (if any) were not enforced"
+                    "Strict off — MaxBox errors (if any) were not enforced "
+                    "(per-mesh 65,535 vertex limit still enforced)"
                 )
                 if validation.errors:
                     for error in validation.errors:

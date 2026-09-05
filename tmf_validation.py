@@ -193,9 +193,10 @@ VERTEX_LIMITS = {
     "LOW": 3_600,
 }
 
-# Hard 3DS / engine limit: vertex indices are uint16 → at most 65,536 verts per mesh
-# after triangulation and UV splits (same count the exporter writes).
-MAX_MESH_VERTICES = 65_536
+# Hard 3DS format limit: vertex *count* is written as uint16 (max 65535).
+# Face indices are also uint16. This is a 16-bit limit (2^16−1), not 32-bit.
+# Enforced on every export — Strict on or off — or the Forever importer breaks.
+MAX_MESH_VERTICES = 65_535
 
 TRANSFORM_TOLERANCE = 1e-4
 ORIGIN_TOLERANCE = 1e-5
@@ -205,13 +206,20 @@ MESH_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
 @dataclass
 class ValidationResult:
     ok: bool = True
+    format_ok: bool = True
     errors: list = field(default_factory=list)
+    format_errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
 
     def add_error(self, message):
-        """Strict blocker (MaxBox extents or per-mesh vertex limit)."""
+        """Strict-only blocker (MaxBox extents). Skipped when Strict is off."""
         self.ok = False
         self.errors.append(message)
+
+    def add_format_error(self, message):
+        """Hard format blocker — always cancels export (Strict on or off)."""
+        self.format_ok = False
+        self.format_errors.append(message)
 
     def add_warning(self, message):
         """Advisory only — never blocks Strict or export."""
@@ -382,20 +390,22 @@ def validate_export(context, mesh_objects, poly_target):
     """
     Validate collected export meshes.
 
-    Strict blockers (``errors`` / ``ok=False``):
+    Hard format blockers (``format_errors`` / ``format_ok=False``) — always cancel
+    export, even when Strict is off:
+    - Any single mesh exceeding ``MAX_MESH_VERTICES`` (65,535) after UV splits
+      (3DS uint16 vertex-count field)
+
+    Strict blockers (``errors`` / ``ok=False``) — only when Strict is on:
     - World verts of car body/wheel meshes outside MaxBox Y/Z
-    - Any single mesh exceeding ``MAX_MESH_VERTICES`` (65,536) after UV splits
 
     Forever does not require a full United mesh set. Missing meshes are not warned.
+    There is no hard total vertex budget across the whole car.
 
     Advisories (``warnings``): unapplied scale, bad locations (sBody origin),
-    ProjShad / light rotation (local Y should point up), ProjShad footprint —
-    never block Strict. High/Low poly totals are not warned.
+    ProjShad / light rotation (local Y should point up), ProjShad footprint.
     """
     result = ValidationResult()
     scene = context.scene
-
-    mesh_names = {ob.name for ob, _ in mesh_objects}
 
     checked = set()
     for ob, mesh in mesh_objects:
@@ -444,16 +454,16 @@ def validate_export(context, mesh_objects, poly_target):
             except Exception as exc:
                 result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
 
-        # Hard per-mesh 3DS limit (uint16 indices) — Strict blocker for every mesh.
+        # Hard per-mesh 3DS limit (uint16 count) — always blocks export.
         try:
             mesh_vert_count = count_mesh_export_vertices_safe(mesh)
         except Exception as exc:
             result.add_warning(f"{ob.name}: per-mesh vertex count failed ({exc})")
             mesh_vert_count = 0
         if mesh_vert_count > MAX_MESH_VERTICES:
-            result.add_error(
+            result.add_format_error(
                 f"{ob.name}: {mesh_vert_count} vertices exceeds per-mesh limit "
-                f"of {MAX_MESH_VERTICES} (3DS uint16 index — split the mesh)"
+                f"of {MAX_MESH_VERTICES} (3DS uint16 — split the mesh)"
             )
 
         # Projector footprint — advisory (zero size → Quality 2 bbox 0).

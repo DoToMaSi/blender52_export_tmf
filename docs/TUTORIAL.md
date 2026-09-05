@@ -34,9 +34,8 @@ In Blender:
 
 - **1 Blender unit ≈ 1 mm** (Unit Scale 1.0, Metric).
 - Use the wire **MaxBox** object as a visual limit while modeling.
-- **Strict** export mode blocks when:
-  - **body/wheel** vertices fall outside Y ∈ [-3, 3] and Z ∈ [-0.3, 2.2], or
-  - **any mesh** exceeds **65,536** vertices after UV splits (3DS limit).
+- **Strict** export mode blocks when **body/wheel** vertices fall outside Y ∈ [-3, 3] and Z ∈ [-0.3, 2.2].
+- **Any mesh** over **65,535** vertices always blocks export (Strict on or off) — 3DS `uint16` format limit.
 - There is no hard total vertex budget for the whole car.
 
 ---
@@ -118,11 +117,11 @@ See [Counting Vertices](https://www.ugghost.com/tutorials/tmu-f/vertices.htm).
 |---|---|---|
 | **High Poly** | ~100,000 vertices (advisory) | MainBodyHigh.Solid.gbx |
 | **Low Poly** | ~3,600 vertices (advisory) | MainBody.Solid.gbx |
-| **Per mesh (hard)** | **65,536** vertices | 3DS uint16 index limit |
+| **Per mesh (hard)** | **65,535** vertices | 3DS `uint16` count field |
 
-There is **no hard total** vertex budget for the whole car. The real engine/format limit is **65,536 vertices per mesh** (after triangulation and UV splits). **Strict** mode blocks export if any single mesh exceeds that.
+There is **no hard total** vertex budget for the whole car. The real format limit is **65,535 vertices per mesh** (after triangulation and UV splits). This is a **16-bit** limit (`2^16 − 1`), not 32-bit — the classic `.3ds` chunk stores the vertex count (and face indices) as unsigned 16-bit integers. Export **always** blocks if any mesh exceeds that, even with Strict off.
 
-High/Low poly targets remain **advisory warnings** only.
+High/Low poly targets remain **advisory** only (no longer warned by default).
 
 Vertex count may **increase after export** (UV splits). Use **Validate TMF Scene** or export with **Verbose Log** to see the count the exporter will write.
 
@@ -140,7 +139,8 @@ Vertex count may **increase after export** (UV splits). Use **Validate TMF Scene
 
 Runs the same checks as export **without writing a file**:
 
-- **Strict (errors):** body/wheel verts outside MaxBox Y/Z, or any mesh over 65,536 verts.
+- **Strict (errors):** body/wheel verts outside MaxBox Y/Z.
+- **Format (always blocks):** any mesh over 65,535 verts.
 - **Warnings:** unapplied scale, bad locations (sBody origin), ProjShad local Y not up / small footprint — **not** missing mesh names.
 
 ### Helpers
@@ -164,7 +164,7 @@ Spawn common meshes (does not replace your body work):
 
 | Option | Purpose |
 |---|---|
-| **Strict** | Block on MaxBox Y/Z (body/wheels) **or** any mesh over 65,536 verts |
+| **Strict** | Block on MaxBox Y/Z (body/wheels) only |
 | **Poly Target** | High / Low — advisory total vertex budget (not a hard car-wide limit) |
 | **Selection Only** | Export only selected allowlisted meshes |
 | **Verbose Log** | Writes `.tmf-export.log` next to the `.3ds` |
@@ -208,7 +208,7 @@ The `.3ds` from this extension is imported in-game to produce the `.Solid.gbx` f
 
 | Problem | What to check |
 |---|---|
-| Export blocked | MaxBox Y/Z on **body/wheels**, or any mesh over **65,536** verts — read N-panel / console errors |
+| Export blocked | MaxBox Y/Z on **body/wheels** (Strict), or any mesh over **65,535** verts (always) |
 | Warnings only | Unapplied scale, sBody origin, ProjShad Y-up / footprint — export still allowed |
 | Model invisible in game | Object naming, vertex count, scale, silent `.3ds` import failure |
 | Wrong paint / details | UV layout; Diffuse vs Details assignment |

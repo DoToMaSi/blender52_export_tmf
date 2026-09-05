@@ -104,7 +104,7 @@ blender --command extension build
 | Tool | Action |
 |---|---|
 | **Prepare TMF Scene** | Metric units, tight view clips, optional **MaxBox** and **Name Collections** |
-| **Validate TMF Scene** | Same Strict checks as export (MaxBox + per-mesh 65,536 verts), without writing a file |
+| **Validate TMF Scene** | Same checks as export (MaxBox Strict + hard per-mesh 65,535 verts), without writing a file |
 | **Helpers** | Spawn `ProjShad`, `LightFProj`, `LightFL1/FR1/RL/RR` as meshes |
 | **Import / Export** | Shortcuts to the File menu operators |
 
@@ -121,10 +121,10 @@ blender --command extension build
 1. Prepare the scene (naming, scale, helpers).
 2. **File → Export → 3DS for TMF (.3ds)**.
 3. Choose **Poly Target** (High: 100k verts, Low: 3.6k verts) — advisory only.
-4. Leave **Strict** on to block exports when **body/wheel** verts fall outside MaxBox (Y ∈ [-3, 3], Z ∈ [-0.3, 2.2]) **or** any single mesh exceeds **65,536** vertices after UV splits (3DS uint16 limit). There is no hard total vertex budget for the whole car. Forever accepts partial cars. Warnings cover **unapplied scale**, **bad locations** (e.g. sBody origin), and **ProjShad rotation** (local Y should point up) — not missing mesh names. `ProjShad` / light helpers are excluded from MaxBox checks.
+4. Leave **Strict** on to block exports when **body/wheel** verts fall outside MaxBox (Y ∈ [-3, 3], Z ∈ [-0.3, 2.2]). **Any mesh over 65,535 vertices** (3DS `uint16` count) always blocks export — even with Strict off — because the Forever importer breaks. There is no hard total vertex budget for the whole car. Warnings cover **unapplied scale**, **bad locations** (e.g. sBody origin), and **ProjShad rotation** (local Y should point up) — not missing mesh names. `ProjShad` / light helpers are excluded from MaxBox checks.
 5. Import the `.3ds` in-game: **Help → Custom data → Car geometry**.
 
-Strict blocks on MaxBox failures and per-mesh vertex overflow. Warnings always appear (Info header / console / N-panel) whether Strict is on or off.
+Strict blocks MaxBox failures. The per-mesh **65,535** vertex cap always blocks. Warnings always appear whether Strict is on or off.
 
 ## Blender scene setup (Max equivalent)
 
@@ -165,7 +165,7 @@ Wheel suffixes: `FL`, `FR`, `RL`, `RR`. Keep **hub origins** on wheels (do not A
 - Object names spelled correctly for parts you want exported (allowlist)
 - Forever can ship with a **partial** mesh set (even only `sBody`); classic United names are recommended
 - Keep body/wheel world verts inside MaxBox: **Y ∈ [-3, 3]**, **Z ∈ [-0.3, 2.2]** (Strict)
-- Keep **each mesh** at or below **65,536** export vertices after UV splits (Strict)
+- Keep **each mesh** at or below **65,535** export vertices after UV splits (always enforced)
 - Apply Scale when practical; rotation may stay unapplied for light aim
 - **ProjShad**: local **Y should point up** (Helpers spawn this correctly)
 - Prefer `sBody` at `(0, 0, 0)` for suspension anchoring (warning only)
@@ -192,7 +192,7 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 
 | Problem | Check |
 |---|---|
-| Export / validate blocked | MaxBox Y/Z on body/wheels, or any mesh over 65,536 verts — ProjShad excluded from MaxBox |
+| Export / validate blocked | MaxBox Y/Z on body/wheels (Strict), or any mesh over **65,535** verts (always) |
 | Soft warnings | Unapplied scale, sBody origin, ProjShad Y-up rotation / footprint — not missing meshes |
 | Model invisible in game | Object spelling, vertex count, scale |
 | Wrong paint/details | UV layout and Diffuse vs Details assignment |
