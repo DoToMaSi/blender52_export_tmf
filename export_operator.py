@@ -20,14 +20,19 @@ from .exporter import (
     write_verbose_log,
 )
 from .format_3ds import reset_name_tables
+from .game_profiles import GAME_TARGET_ITEMS, get_profile
 from .tmf_validation import validate_export
 
 
+def _export_poly_items(self, context):
+    return get_profile(getattr(self, "game_target", "TMF")).poly_target_items
+
+
 class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
-    """Export 3DS model for TrackMania Forever"""
+    """Export 3DS model for TrackMania Forever or TrackMania 2"""
 
     bl_idname = "export_scene.tmf"
-    bl_label = "Export 3DS for TMF (.3ds)"
+    bl_label = "Export 3DS for TrackMania (.3ds)"
     bl_options = {"PRESET"}
 
     filename_ext = ".3ds"
@@ -36,11 +41,16 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         options={"HIDDEN"},
     )
 
+    game_target: bpy.props.EnumProperty(
+        name="Game Target",
+        items=GAME_TARGET_ITEMS,
+        default="TMF",
+    )
+
     use_selection: bpy.props.BoolProperty(
         name="Selection Only",
         description=(
-            "Export only selected visible objects — nothing is force-included. "
-            "Missing classic United parts are warnings only (Forever accepts partial cars)"
+            "Export only selected visible objects — nothing is force-included"
         ),
         default=False,
     )
@@ -48,12 +58,10 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
     use_strict: bpy.props.BoolProperty(
         name="Strict",
         description=(
-            "Block export when car body/wheel world vertices fall outside the TMF "
-            "MaxBox (Y in [-3, 3] mm, Z in [-0.3, 2.2] mm). Per-mesh vertex overflow "
-            "(over 65,535 — 3DS uint16) always blocks export even when Strict is off. "
-            "Warnings cover unapplied scale, bad locations, and ProjShad rotation "
-            "(local Y should point up) — not missing mesh names. ProjShad / light "
-            "helpers are excluded from MaxBox checks"
+            "Block export when body/wheel world vertices fall outside the game MaxBox. "
+            "Per-mesh vertex overflow (over 65,535 — 3DS uint16) always blocks export "
+            "even when Strict is off. Warnings cover scale, locations, and shadow "
+            "projector rotation (local Y should point up)"
         ),
         default=True,
     )
@@ -62,25 +70,24 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         name="Verbose Log",
         description=(
             "Write a detailed .tmf-export.log next to the .3ds (full detail) and a short "
-            "System Console summary. Prefer the log file over the console — flooding the "
-            "Windows console can freeze Blender"
+            "System Console summary"
         ),
         default=True,
     )
 
     poly_target: bpy.props.EnumProperty(
         name="Poly Target",
-        description=(
-            "Advisory whole-car vertex budget (warnings only — does not block Strict). "
-            "Hard limit is 65,536 vertices per mesh. "
-            "High ≈ MainBodyHigh.Solid.gbx, Low ≈ MainBody.Solid.gbx"
-        ),
-        items=(
-            ("HIGH", "High Poly", "Advisory up to 100,000 total vertices (MainBodyHigh.Solid.gbx)"),
-            ("LOW", "Low Poly", "Advisory up to 3,600 total vertices (MainBody.Solid.gbx)"),
-        ),
-        default="HIGH",
+        description="Advisory whole-car vertex budget (does not block export)",
+        items=_export_poly_items,
     )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "game_target")
+        layout.prop(self, "use_selection")
+        layout.prop(self, "use_strict")
+        layout.prop(self, "poly_target")
+        layout.prop(self, "use_verbose")
 
     def execute(self, context):
         filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
@@ -91,11 +98,12 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         empty_objects = []
         result = {"CANCELLED"}
         export_ok = False
+        profile = get_profile(self.game_target)
 
         print(f"\n_____START_____ [{ADDON_NAME} v{ADDON_VERSION}]")
         if verbose:
             header = (
-                f"Options: selection={self.use_selection}  "
+                f"Options: game={self.game_target}  selection={self.use_selection}  "
                 f"strict={self.use_strict}  poly_target={self.poly_target}  "
                 f"verbose={verbose}"
             )
@@ -109,6 +117,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 self.use_selection,
                 verbose=verbose,
                 log_lines=log_lines,
+                game_target=self.game_target,
+                profile=profile,
             )
 
             if not mesh_objects and not empty_objects:
@@ -121,6 +131,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 context,
                 mesh_objects,
                 self.poly_target,
+                profile=profile,
             )
 
             # Soft advisories always (Strict on or off).
@@ -246,7 +257,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
 
 
 def menu_func(self, context):
-    self.layout.operator(Export_tmf.bl_idname, text="3DS for TMF (.3ds)")
+    self.layout.operator(Export_tmf.bl_idname, text="3DS for TrackMania (.3ds)")
 
 
 def register():

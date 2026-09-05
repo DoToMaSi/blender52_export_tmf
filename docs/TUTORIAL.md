@@ -1,20 +1,44 @@
-# TrackMania Forever 3DS — Tutorial
+# TrackMania Forever / TM2 3DS — Tutorial
 
-Practical guide for authoring TMF car geometry in **Blender 5.2** with the **TrackMania Forever 3DS** extension.
+Practical guide for authoring car geometry in **Blender 5.2** with the **TrackMania Forever / TM2 3DS** extension.
 
-Classic reference: [3D Model Conversion for TrackMania United](https://www.ugghost.com/tutorials/tmu-f/3d_model_conversion_for_tmu.htm) by trick@ugghost.com (2008). This tutorial adapts those rules to Blender and documents extension-specific tools.
+Use the N-panel **Game Target** (or the Import/Export dialog) to choose:
+
+- **TrackMania Forever** — classic United/Forever workflow (this tutorial’s main sections)
+- **TrackMania 2** — ManiaPlanet skins ([maniadoc](https://doc.maniaplanet.com/customization/importer/import-a-car-skin))
+
+Classic Forever reference: [3D Model Conversion for TrackMania United](https://www.ugghost.com/tutorials/tmu-f/3d_model_conversion_for_tmu.htm) by trick@ugghost.com (2008).
 
 ---
 
 ## 1. Quick start
 
 1. Unzip the release **bundle** (`export_3ds_tmf-<version>-bundle.zip`).
-2. Open **`template/base-tmf-scene.blend`** in Blender 5.2+.
-   - Metric units, tight viewport clips, wire **MaxBox** guide, and **TMF Mesh Names** collections are already set up.
-3. Install the extension from **`script/export_3ds_tmf-<version>.zip`**:
-   - **Edit → Preferences → Get Extensions → Install from Disk**
-4. In the 3D Viewport sidebar, open the **TMF** tab.
-5. Model your car, validate, export `.3ds`, then import in-game.
+2. Open **`template/base-tmf-scene.blend`** in Blender 5.2+ (Forever-oriented starter).
+3. Install the extension from **`script/export_3ds_tmf-<version>.zip`**.
+4. In the 3D Viewport sidebar, open the **TMF** tab and set **Game Target**.
+5. Model your car, validate, export `.3ds`, then import in-game (Forever) or via NadeoImporter (TM2).
+
+---
+
+## TrackMania 2 notes
+
+When **Game Target = TrackMania 2**:
+
+| Topic | TM2 |
+|---|---|
+| Main body | Often `dBody` (Details) and/or `sBody` (Skin / paint) |
+| Wheels | `dFLWheel`… and/or `wFLWheel`… (WheelsDiffuse sheet) |
+| Glass | `gFWShield`, `gRWShield`, `gBody`, doors/hood/trunk glass |
+| Damage morph | `_dBody` (same vert count/indices as `dBody`) |
+| Shadow | **`FakeShad`** mesh + `FakeShad.dds` (not ProjShad) |
+| MaxBox (Strict) | X ∈ [-1.5, 1.5], Y ∈ [-3, 3], Z ∈ [-0.2, 2.5] |
+| Poly targets | Very High 60k / High 20k / Low 4250 (advisory) |
+| Export LODs | `MainBodyVeryHigh.3ds`, `MainBodyHigh.3ds`, `MainBody.3ds` |
+
+In-game packaging uses **NadeoImporter** `CarSkin` into `Skins/Vehicles/CarCommon` — this extension only produces the `.3ds` geometry.
+
+Forever sections below remain valid when Game Target is Forever.
 
 ---
 

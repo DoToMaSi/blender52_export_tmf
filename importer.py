@@ -29,7 +29,8 @@ def _is_maxbox(name):
 
 
 def _is_projshad_name(name):
-    return _base_name(name).casefold() == "projshad"
+    """Forever ProjShad or TM2 FakeShad shadow projector."""
+    return _base_name(name).casefold() in ("projshad", "fakeshad")
 
 
 def _mesh_aabb_size_from_verts(verts):
@@ -208,9 +209,11 @@ def do_import(
     prepare_workspace=False,
     create_maxbox=False,
     create_name_collections=False,
+    game_target=None,
+    profile=None,
 ):
     """
-    Import a TMF .3ds into the current scene.
+    Import a TrackMania .3ds into the current scene.
 
     prepare_workspace: metric units + view clips (no helpers).
     create_maxbox: wire MaxBox guide when none exists in the scene.
@@ -218,6 +221,14 @@ def do_import(
 
     Returns dict with keys: objects, skipped, materials, projshad_restored, maxbox, collections.
     """
+    from .game_profiles import get_profile, profile_from_context
+
+    if profile is None:
+        if game_target:
+            profile = get_profile(game_target)
+        else:
+            profile = profile_from_context(context)
+
     if prepare_workspace:
         prepare_tmf_workspace(context)
 
@@ -259,13 +270,11 @@ def do_import(
 
         if obj_data.uvs and len(obj_data.uvs) == len(local_verts):
             uv_layer = mesh.uv_layers.new(name="UVMap")
-            # Assign per-loop from vertex UVs (3DS stores one UV per vertex after split).
             for poly in mesh.polygons:
                 for loop_idx in poly.loop_indices:
                     vi = mesh.loops[loop_idx].vertex_index
                     uv_layer.data[loop_idx].uv = obj_data.uvs[vi]
 
-        # Materials from face material chunks or mapfile library.
         mat_names = list(obj_data.face_materials.keys())
         if not mat_names and name in mat_lib:
             mat_names = [name]
@@ -281,14 +290,12 @@ def do_import(
         coll.objects.link(ob)
         created.append(ob.name)
 
-    # KF-only nodes (light Empties exported without OBJECT mesh) — rare in 2.2.21+.
     mesh_names = {_base_name(n) for n in created}
     for node in parsed.kf_nodes:
         if not node.name or _is_maxbox(node.name):
             continue
         if _base_name(node.name) in mesh_names or node.name in mesh_names:
             continue
-        # Only spawn Empty for known light helper names without mesh.
         lower = node.name.casefold()
         if not (lower.startswith("light") or "light" in lower):
             continue
@@ -308,11 +315,13 @@ def do_import(
 
     maxbox_info = None
     if create_maxbox:
-        maxbox_info = create_maxbox_guide(context, update_if_exists=False)
+        maxbox_info = create_maxbox_guide(
+            context, update_if_exists=False, profile=profile
+        )
 
     collections_info = None
     if create_name_collections:
-        collections_info = create_tmf_name_collections(context)
+        collections_info = create_tmf_name_collections(context, profile=profile)
 
     return {
         "objects": created,
@@ -321,4 +330,5 @@ def do_import(
         "projshad_restored": projshad_restored,
         "maxbox": maxbox_info,
         "collections": collections_info,
+        "game_target": profile.id,
     }

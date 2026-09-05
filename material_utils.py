@@ -9,21 +9,16 @@
 
 import bpy
 
+from .game_profiles import DEFAULT_GAME_TARGET, get_profile
+
 DIFFUSE_TEXTURE = "Diffuse.dds"
 DETAILS_TEXTURE = "Details.dds"
 
 
-def expected_texture_filename(object_name):
-    """Canonical TMF map names written into the .3ds material chunks."""
-    if object_name == "ProjShad":
-        return "ProjShad.dds"
-    if object_name.startswith("LightFProj"):
-        return "LightFProj.dds"
-    if object_name.startswith("s"):
-        return DIFFUSE_TEXTURE
-    if object_name.startswith("d") or object_name.startswith("g"):
-        return DETAILS_TEXTURE
-    return None
+def expected_texture_filename(object_name, game_target=None):
+    """Canonical map names written into the .3ds material chunks."""
+    profile = get_profile(game_target or DEFAULT_GAME_TARGET)
+    return profile.expected_texture(object_name)
 
 
 def get_principled_bsdf(material):
@@ -104,14 +99,12 @@ def _iter_object_materials(obj, mesh=None):
             yield mat
 
 
-def get_object_texture_reference(obj, mesh=None):
+def get_object_texture_reference(obj, mesh=None, game_target=None):
     """
     Resolve the texture filename written into the .3ds material map chunk.
 
-    Prefer canonical TMF names (Diffuse.dds, Details.dds, ProjShad.dds,
-    LightFProj.dds) so the compiler gets the map references it needs even when
-    Blender materials have no Image Texture node. Otherwise pass through the
-    image basename if one is present.
+    Prefer canonical game map names so the compiler gets the references it needs
+    even when Blender materials have no Image Texture node.
     """
     image = None
     for mat in _iter_object_materials(obj, mesh):
@@ -119,7 +112,7 @@ def get_object_texture_reference(obj, mesh=None):
         if image is not None:
             break
 
-    expected = expected_texture_filename(obj.name)
+    expected = expected_texture_filename(obj.name, game_target=game_target)
     if expected:
         return expected, image
 

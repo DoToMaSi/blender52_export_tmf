@@ -13,23 +13,23 @@ import bpy
 import bpy_extras
 
 from .addon_info import ADDON_NAME, ADDON_VERSION
+from .game_profiles import GAME_TARGET_ITEMS, get_profile
 from .importer import do_import
-from .tmf_validation import TMF_NAMES_ROOT_COLLECTION
 
 
-def _imported_projshad(names):
+def _imported_shadow(names):
     for n in names:
         base = n.rsplit(".", 1)[0] if "." in n and n.rsplit(".", 1)[1].isdigit() else n
-        if base.casefold() == "projshad":
-            return True
-    return False
+        if base.casefold() in ("projshad", "fakeshad"):
+            return base
+    return None
 
 
 class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
-    """Import 3DS model produced by Export 3DS for TMF (round-trip)"""
+    """Import 3DS model for TrackMania Forever or TrackMania 2 (round-trip)"""
 
     bl_idname = "import_scene.tmf"
-    bl_label = "Import 3DS for TMF (.3ds)"
+    bl_label = "Import 3DS for TrackMania (.3ds)"
     bl_options = {"PRESET", "UNDO"}
 
     filename_ext = ".3ds"
@@ -38,16 +38,18 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         options={"HIDDEN"},
     )
 
+    game_target: bpy.props.EnumProperty(
+        name="Game Target",
+        items=GAME_TARGET_ITEMS,
+        default="TMF",
+    )
+
     prepare_scene: bpy.props.BoolProperty(
-        name="Prepare Scene for TMF",
+        name="Prepare Scene",
         description=(
-            "Switch the whole Blender workspace to TMF car scale: Scene Properties "
-            "→ Units set to Metric with unit scale 1.0 (1 Blender unit ≈ 1 mm), and "
-            "3D Viewport clip start/end tightened so ~6-unit cars stay visible. "
-            "Does not add light helpers — many cars omit them. "
-            "Enable only on a clean file dedicated to TMF editing; leave off when "
-            "importing into a scene that already has other meshes or different unit "
-            "settings, because changing units can affect how existing objects display"
+            "Switch the Blender workspace to car scale: Metric units with unit scale "
+            "1.0 (1 Blender unit ≈ 1 mm), and tightened viewport clips. "
+            "Enable only on a clean file dedicated to car editing"
         ),
         default=False,
     )
@@ -55,10 +57,8 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     create_maxbox: bpy.props.BoolProperty(
         name="Create MaxBox",
         description=(
-            "Add the wire MaxBox guide (≈3×6×2.5 mm) when none exists in the scene. "
-            "MaxBox is never exported and the game ignores it, but it marks the engine "
-            "bounding envelope and is essential while positioning body, wheels, and "
-            "shadows. Skipped automatically if a MaxBox is already present"
+            "Add the wire MaxBox guide for the selected game when none exists. "
+            "Never exported"
         ),
         default=True,
     )
@@ -66,16 +66,15 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     create_name_collections: bpy.props.BoolProperty(
         name="Create Name Collections",
         description=(
-            f"Add empty Outliner collections for every canonical TMF mesh name under "
-            f"\"{TMF_NAMES_ROOT_COLLECTION}\". "
-            "No meshes are created — drag your parts in and rename to match. "
-            "Collections are never exported; existing name collections are kept"
+            "Add empty Outliner collections for every canonical mesh name for the "
+            "selected game. Collections are never exported"
         ),
         default=True,
     )
 
     def draw(self, context):
         layout = self.layout
+        layout.prop(self, "game_target")
         layout.prop(self, "prepare_scene")
         layout.prop(self, "create_maxbox")
         layout.prop(self, "create_name_collections")
@@ -83,6 +82,7 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
     def execute(self, context):
         filepath = bpy.path.ensure_ext(self.filepath, self.filename_ext)
         start = time.time()
+        profile = get_profile(self.game_target)
         try:
             context.window.cursor_set("WAIT")
             result = do_import(
@@ -91,6 +91,8 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
                 prepare_workspace=self.prepare_scene,
                 create_maxbox=self.create_maxbox,
                 create_name_collections=self.create_name_collections,
+                game_target=self.game_target,
+                profile=profile,
             )
         except Exception as exc:
             self.report({"ERROR"}, f"Import failed: {exc}")
@@ -100,12 +102,19 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
         n = len(result["objects"])
         elapsed = time.time() - start
-        msg = f"Imported {n} objects — {ADDON_NAME} v{ADDON_VERSION} ({elapsed:.2f}s)"
+        msg = (
+            f"Imported {n} objects ({profile.id}) — "
+            f"{ADDON_NAME} v{ADDON_VERSION} ({elapsed:.2f}s)"
+        )
         self.report({"INFO"}, msg)
-        if result.get("projshad_restored"):
-            self.report({"INFO"}, "ProjShad restored to flat Blender ground orientation")
-        elif _imported_projshad(result["objects"]):
-            self.report({"INFO"}, "ProjShad imported flat (hub rotation cleared)")
+        shadow = _imported_shadow(result["objects"])
+        if result.get("projshad_restored") and shadow:
+            self.report(
+                {"INFO"},
+                f"{shadow} restored to flat Blender ground orientation",
+            )
+        elif shadow:
+            self.report({"INFO"}, f"{shadow} imported flat (hub rotation cleared)")
         maxbox_info = result.get("maxbox")
         if maxbox_info and maxbox_info.get("created_maxbox"):
             self.report({"INFO"}, f"Created {maxbox_info['maxbox']} scale guide")
@@ -113,10 +122,11 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
         if coll_info and coll_info.get("created"):
             self.report(
                 {"INFO"},
-                f"Added {len(coll_info['created'])} name collections under {TMF_NAMES_ROOT_COLLECTION}",
+                f"Added {len(coll_info['created'])} name collections under "
+                f"{profile.names_root_collection}",
             )
         elif self.prepare_scene:
-            self.report({"INFO"}, "TMF workspace units and view clips applied")
+            self.report({"INFO"}, "Workspace units and view clips applied")
         if result["skipped"]:
             self.report({"WARNING"}, f"Skipped: {', '.join(result['skipped'][:5])}")
         print(f"\n[{ADDON_NAME} v{ADDON_VERSION}] {msg}")
@@ -125,7 +135,7 @@ class Import_tmf(bpy.types.Operator, bpy_extras.io_utils.ImportHelper):
 
 
 def menu_func(self, context):
-    self.layout.operator(Import_tmf.bl_idname, text="3DS for TMF (.3ds)")
+    self.layout.operator(Import_tmf.bl_idname, text="3DS for TrackMania (.3ds)")
 
 
 def register():

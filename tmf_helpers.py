@@ -116,6 +116,34 @@ def create_projshad(context, size=(2.6, 5.6), replace=False):
     return ob, None
 
 
+def create_fakeshad(context, size=(2.6, 5.6), replace=False):
+    """
+    Spawn TM2 FakeShad with TrackMania pivot orientation: local **Y is up**.
+
+    Same geometry approach as ProjShad; name/material map to FakeShad.dds.
+    """
+    name = "FakeShad"
+    if not replace and not _ensure_unique_object(name):
+        return None, f"{name} already exists"
+    if replace:
+        for ob in list(bpy.data.objects):
+            base = ob.name.rsplit(".", 1)[0] if "." in ob.name and ob.name.rsplit(".", 1)[1].isdigit() else ob.name
+            if base.casefold() == name.casefold():
+                bpy.data.objects.remove(ob, do_unlink=True)
+
+    mesh = _plane_mesh_xz(name, size[0], size[1])
+    ob = bpy.data.objects.new(name, mesh)
+    ob.location = (0.0, 0.0, 0.0114)
+    ob.rotation_euler = (math.pi * 0.5, 0.0, 0.0)
+    mat = _make_material("FakeShad", "FakeShad.dds")
+    if mesh.materials:
+        mesh.materials[0] = mat
+    else:
+        mesh.materials.append(mat)
+    _link_object(context, ob)
+    return ob, None
+
+
 def create_lightfproj(context, location=(0.0, -2.27, 0.55), size=0.5, replace=False):
     name = "LightFProj"
     if not replace and not _ensure_unique_object(name):
@@ -135,14 +163,24 @@ def create_lightfproj(context, location=(0.0, -2.27, 0.55), size=0.5, replace=Fa
     return ob, None
 
 
-# Neutral defaults centered on X=0 (not tied to a specific donor car).
-# Front/rear pairs are mirrored; Y/Z sit in a typical TMF envelope for easy tweaking.
-_LIGHT_DEFAULTS = (
+# Neutral defaults centered on X=0.
+_LIGHT_DEFAULTS_TMF = (
     ("LightFL1", (0.65, -2.14, 0.63), (0.0, 0.0, 0.0)),
     ("LightFR1", (-0.65, -2.14, 0.63), (0.0, 0.0, 0.0)),
     ("LightRL", (0.54, 2.31, 0.75), (0.0, 0.0, math.pi)),
     ("LightRR", (-0.54, 2.31, 0.75), (0.0, 0.0, math.pi)),
 )
+
+# TM2 rear lights use RLLight / RRLight (lighttrails).
+_LIGHT_DEFAULTS_TM2 = (
+    ("LightFL1", (0.65, -2.14, 0.63), (0.0, 0.0, 0.0)),
+    ("LightFR1", (-0.65, -2.14, 0.63), (0.0, 0.0, 0.0)),
+    ("RLLight", (0.54, 2.31, 0.75), (0.0, 0.0, math.pi)),
+    ("RRLight", (-0.54, 2.31, 0.75), (0.0, 0.0, math.pi)),
+)
+
+# Back-compat alias
+_LIGHT_DEFAULTS = _LIGHT_DEFAULTS_TMF
 
 
 def create_light_helper(context, name, location, rotation_euler, size=0.02, replace=False):
@@ -154,7 +192,6 @@ def create_light_helper(context, name, location, rotation_euler, size=0.02, repl
             if base.casefold() == name.casefold():
                 bpy.data.objects.remove(ob, do_unlink=True)
 
-    # Tiny XZ card (thin on Y) so export has non-zero area like the working log.
     mesh = bpy.data.meshes.new(name)
     h = size * 0.5
     verts = [
@@ -173,10 +210,11 @@ def create_light_helper(context, name, location, rotation_euler, size=0.02, repl
     return ob, None
 
 
-def create_all_light_helpers(context, replace=False):
+def create_all_light_helpers(context, replace=False, game_target="TMF"):
+    defaults = _LIGHT_DEFAULTS_TM2 if game_target == "TM2" else _LIGHT_DEFAULTS_TMF
     created = []
     skipped = []
-    for name, loc, rot in _LIGHT_DEFAULTS:
+    for name, loc, rot in defaults:
         ob, err = create_light_helper(context, name, loc, rot, replace=replace)
         if ob:
             created.append(ob.name)
@@ -185,13 +223,19 @@ def create_all_light_helpers(context, replace=False):
     return created, skipped
 
 
-def create_all_helpers(context, replace=False):
+def create_all_helpers(context, replace=False, game_target="TMF"):
     messages = []
-    ob, err = create_projshad(context, replace=replace)
-    messages.append(f"ProjShad: {'created' if ob else err}")
+    if game_target == "TM2":
+        ob, err = create_fakeshad(context, replace=replace)
+        messages.append(f"FakeShad: {'created' if ob else err}")
+    else:
+        ob, err = create_projshad(context, replace=replace)
+        messages.append(f"ProjShad: {'created' if ob else err}")
     ob, err = create_lightfproj(context, replace=replace)
     messages.append(f"LightFProj: {'created' if ob else err}")
-    created, skipped = create_all_light_helpers(context, replace=replace)
+    created, skipped = create_all_light_helpers(
+        context, replace=replace, game_target=game_target
+    )
     if created:
         messages.append(f"Lights created: {', '.join(created)}")
     if skipped:
@@ -200,7 +244,7 @@ def create_all_helpers(context, replace=False):
 
 
 class TMF_OT_add_projshad(bpy.types.Operator):
-    """Create ProjShad with Y-up pivot (TM shadow plane; flat in the viewport)"""
+    """Create ProjShad with Y-up pivot (Forever shadow plane)"""
 
     bl_idname = "tmf.add_projshad"
     bl_label = "Add ProjShad"
@@ -210,6 +254,24 @@ class TMF_OT_add_projshad(bpy.types.Operator):
 
     def execute(self, context):
         ob, err = create_projshad(context, replace=self.replace)
+        if err:
+            self.report({"WARNING"}, err)
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Created {ob.name}")
+        return {"FINISHED"}
+
+
+class TMF_OT_add_fakeshad(bpy.types.Operator):
+    """Create FakeShad with Y-up pivot (TM2 shadow plane)"""
+
+    bl_idname = "tmf.add_fakeshad"
+    bl_label = "Add FakeShad"
+    bl_options = {"REGISTER", "UNDO"}
+
+    replace: bpy.props.BoolProperty(name="Replace Existing", default=False)
+
+    def execute(self, context):
+        ob, err = create_fakeshad(context, replace=self.replace)
         if err:
             self.report({"WARNING"}, err)
             return {"CANCELLED"}
@@ -236,16 +298,26 @@ class TMF_OT_add_lightfproj(bpy.types.Operator):
 
 
 class TMF_OT_add_light_helpers(bpy.types.Operator):
-    """Create LightFL1/FR1/RL/RR tiny meshes (flare origins)"""
+    """Create front/rear light helper meshes for the active game target"""
 
     bl_idname = "tmf.add_light_helpers"
     bl_label = "Add Light Helpers"
     bl_options = {"REGISTER", "UNDO"}
 
     replace: bpy.props.BoolProperty(name="Replace Existing", default=False)
+    game_target: bpy.props.EnumProperty(
+        name="Game Target",
+        items=(
+            ("TMF", "TrackMania Forever", ""),
+            ("TM2", "TrackMania 2", ""),
+        ),
+        default="TMF",
+    )
 
     def execute(self, context):
-        created, skipped = create_all_light_helpers(context, replace=self.replace)
+        created, skipped = create_all_light_helpers(
+            context, replace=self.replace, game_target=self.game_target
+        )
         if created:
             self.report({"INFO"}, f"Created: {', '.join(created)}")
         if skipped and not created:
@@ -257,22 +329,33 @@ class TMF_OT_add_light_helpers(bpy.types.Operator):
 
 
 class TMF_OT_add_all_helpers(bpy.types.Operator):
-    """Create ProjShad, LightFProj, and LightFL1/FR1/RL/RR"""
+    """Create shadow projector, LightFProj, and light helpers for the game target"""
 
     bl_idname = "tmf.add_all_helpers"
-    bl_label = "Add All TMF Helpers"
+    bl_label = "Add All Helpers"
     bl_options = {"REGISTER", "UNDO"}
 
     replace: bpy.props.BoolProperty(name="Replace Existing", default=False)
+    game_target: bpy.props.EnumProperty(
+        name="Game Target",
+        items=(
+            ("TMF", "TrackMania Forever", ""),
+            ("TM2", "TrackMania 2", ""),
+        ),
+        default="TMF",
+    )
 
     def execute(self, context):
-        for line in create_all_helpers(context, replace=self.replace):
+        for line in create_all_helpers(
+            context, replace=self.replace, game_target=self.game_target
+        ):
             self.report({"INFO"}, line)
         return {"FINISHED"}
 
 
 classes = (
     TMF_OT_add_projshad,
+    TMF_OT_add_fakeshad,
     TMF_OT_add_lightfproj,
     TMF_OT_add_light_helpers,
     TMF_OT_add_all_helpers,

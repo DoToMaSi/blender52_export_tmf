@@ -33,6 +33,7 @@ $ExtensionFiles = @(
     "exporter.py",
     "importer.py",
     "format_3ds.py",
+    "game_profiles.py",
     "material_utils.py",
     "tmf_validation.py",
     "tmf_scene.py",

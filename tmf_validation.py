@@ -9,142 +9,59 @@
 
 from dataclasses import dataclass, field
 
-# Classic United tutorial car parts. Forever can import a single mesh (e.g. only
-# sBody); missing names are not warned — export whatever is present.
-RECOMMENDED_MESHES = (
-    "sBody",
-    "dBody",
-    "gBody",
-    "dFLWheel",
-    "sFLWheel",
-    "dFRWheel",
-    "sFRWheel",
-    "dRLWheel",
-    "sRLWheel",
-    "dRRWheel",
-    "sRRWheel",
+from .game_profiles import (
+    TMF_LIGHTS,
+    TMF_NAME_GUIDE,
+    TMF_OPTIONAL_CAR,
+    TMF_PROJECTORS,
+    TMF_RECOMMENDED,
+    TMF_VERTEX_LIMITS,
+    get_profile,
+    profile_from_context,
+    strip_blender_suffix,
+    strip_damage_prefix,
 )
 
-# Driver head (bobbing physics). s = Diffuse.dds, d = Details.dds.
-OPTIONAL_CAR_MESHES = (
-    "sPilHead",
-    "dPilHead",
-)
-
-# Back-compat alias used by exporter allowlist / logs.
+# Back-compat aliases (Forever / TMF) — prefer get_profile() for new code.
+RECOMMENDED_MESHES = TMF_RECOMMENDED
+OPTIONAL_CAR_MESHES = TMF_OPTIONAL_CAR
 REQUIRED_MESHES = RECOMMENDED_MESHES
-
-# Projector meshes written into the .3ds (geometry defines Quality 2 / headlight
-# projection). ProjShad.dds alone in the zip is not enough — missing mesh →
-# "Quality 2's bounding box (0 ...".
-PROJECTOR_MESHES = (
-    "ProjShad",
-    "LightFProj",
-)
-
-# Optional light helpers (tiny meshes or Empties). Exported as KFDATA-only.
-# Matching is case-insensitive via is_optional_light_helper() — stock blends use
-# mixed casings (FLlight1 vs FLLight1 vs LightFL1).
-OPTIONAL_MESHES = (
-    # Tutorial / manual naming
-    "LightFL1",
-    "LightFR1",
-    "LightFL2",
-    "LightFR2",
-    "LightFL3",
-    "LightFR3",
-    "LightRL",
-    "LightRR",
-    # Stock Nadeo / MainBodyHigh style (e.g. MainBed(High).blend)
-    "FLlight1",
-    "FRlight1",
-    "FLlight2",
-    "FRlight2",
-    "FLlight3",
-    "FRlight3",
-    "RLlight",
-    "RRlight",
-    # Alternate capitalizations seen in docs / older exports
-    "FLLight1",
-    "FRLight1",
-    "FLLight2",
-    "FRLight2",
-    "FLLight3",
-    "FRLight3",
-    "RLLight",
-    "RRLight",
-)
-
-# Full stock-car name set (3ds Max Select Objects / Nadeo reference). Used for empty
-# Outliner collections as a naming guide — collections are never exported.
-TMF_NAME_GUIDE_MESHES = (
-    "dBody",
-    "dFLArmBot",
-    "dFLArmDir",
-    "dFLArmTop",
-    "dFLGuard",
-    "dFLHub",
-    "dFLWheel",
-    "dFRArmBot",
-    "dFRArmDir",
-    "dFRArmTop",
-    "dFRGuard",
-    "dFRHub",
-    "dFRWheel",
-    "dRLArmBot",
-    "dRLArmTop",
-    "dRLCardan",
-    "dRLHub",
-    "dRLWheel",
-    "dRRArmBot",
-    "dRRArmTop",
-    "dRRCardan",
-    "dRRHub",
-    "dRRWheel",
-    "gBody",
-    "LightFL1",
-    "LightFL2",
-    "LightFL3",
-    "LightFR1",
-    "LightFR2",
-    "LightFR3",
-    "LightFProj",
-    "LightRL",
-    "LightRR",
-    "ProjShad",
-    "dPilHead",
-    "sBody",
-    "sFLWheel",
-    "sFRWheel",
-    "sPilHead",
-    "sRLWheel",
-    "sRRWheel",
-)
-
+PROJECTOR_MESHES = TMF_PROJECTORS
+OPTIONAL_MESHES = TMF_LIGHTS
+TMF_NAME_GUIDE_MESHES = TMF_NAME_GUIDE
 TMF_NAMES_ROOT_COLLECTION = "TMF Mesh Names"
 
 _OPTIONAL_MESHES_FOLD = frozenset(n.casefold() for n in OPTIONAL_MESHES)
 
-
-def _strip_blender_suffix(name):
-    if "." in name and name.rsplit(".", 1)[1].isdigit():
-        return name.rsplit(".", 1)[0]
-    return name
-
-
-def is_optional_light_helper(name):
-    """True for light flare helpers (any common casing / .001 suffix)."""
-    return _strip_blender_suffix(name).casefold() in _OPTIONAL_MESHES_FOLD
-
-
-# Only MaxBox is never written (in-scene scale guide).
 EXPORT_HELPER_BLACKLIST = frozenset({
     "maxbox",
 })
 
-# ProjShad must have a usable ground footprint or Quality 2 collapses to 0.
 MIN_PROJSHAD_FOOTPRINT = 1.0
 MIN_LIGHTFPROJ_EXTENT = 0.5
+
+# Forever defaults (used when no profile passed)
+ABS_Y_MM = (-3.0, 3.0)
+ABS_Z_MM = (-0.3, 2.2)
+
+VERTEX_LIMITS = dict(TMF_VERTEX_LIMITS)
+
+MAX_MESH_VERTICES = 65_535
+
+TRANSFORM_TOLERANCE = 1e-4
+ORIGIN_TOLERANCE = 1e-5
+MESH_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
+
+
+def _strip_blender_suffix(name):
+    return strip_blender_suffix(name)
+
+
+def is_optional_light_helper(name, profile=None):
+    """True for light flare helpers (any common casing / .001 suffix)."""
+    if profile is not None:
+        return profile.is_optional_light_helper(name)
+    return _strip_blender_suffix(name).casefold() in _OPTIONAL_MESHES_FOLD
 
 
 def is_export_blacklisted(name):
@@ -152,20 +69,22 @@ def is_export_blacklisted(name):
     return _strip_blender_suffix(name).casefold() in EXPORT_HELPER_BLACKLIST
 
 
-def is_projector_mesh(name):
-    """True for ProjShad / LightFProj (any casing / .001)."""
+def is_projector_mesh(name, profile=None):
+    """True for shadow / headlight projector meshes."""
+    if profile is not None:
+        return profile.is_projector_mesh(name)
     folded = _strip_blender_suffix(name).casefold()
-    return folded == "projshad" or folded.startswith("lightfproj")
+    return folded == "projshad" or folded.startswith("lightfproj") or folded == "fakeshad"
 
 
-def subject_to_strict_extents(name):
+def subject_to_strict_extents(name, profile=None):
     """
-    Strict MaxBox Y/Z checks apply to car body / wheel meshes only.
+    Strict MaxBox checks apply to car body / wheel meshes only.
 
-    ProjShad is often a large ground plane (or rotated +90° X so footprint lies
-    in XZ) and intentionally exceeds the car height band — excluding it avoids
-    false Strict failures on working cars. Light helpers are tiny flare origins.
+    Projectors and light helpers are excluded (large shadow planes / flare origins).
     """
+    if profile is not None:
+        return profile.subject_to_strict_extents(name)
     if is_export_blacklisted(name):
         return False
     if is_projector_mesh(name) or is_optional_light_helper(name):
@@ -173,34 +92,15 @@ def subject_to_strict_extents(name):
     return True
 
 
-def mesh_export_names():
+def mesh_export_names(profile=None):
     """Object names that receive a full mesh chunk in the .3ds."""
+    if profile is not None:
+        return profile.mesh_export_names()
     return (
         frozenset(RECOMMENDED_MESHES)
         | frozenset(OPTIONAL_CAR_MESHES)
         | frozenset(PROJECTOR_MESHES)
     )
-
-# Absolute world-space limits in millimeters (TMF Maxbox / engine space).
-# These are real engine limits (~6×3×2.5 mm box) — NOT meters×1000.
-# A real-world bumper at 1.5 m must be authored at ~1.5 mm (0.1% scale).
-ABS_Y_MM = (-3.0, 3.0)
-ABS_Z_MM = (-0.3, 2.2)
-
-# Advisory totals for High/Low Solid compile targets (warnings only).
-VERTEX_LIMITS = {
-    "HIGH": 100_000,
-    "LOW": 3_600,
-}
-
-# Hard 3DS format limit: vertex *count* is written as uint16 (max 65535).
-# Face indices are also uint16. This is a 16-bit limit (2^16−1), not 32-bit.
-# Enforced on every export — Strict on or off — or the Forever importer breaks.
-MAX_MESH_VERTICES = 65_535
-
-TRANSFORM_TOLERANCE = 1e-4
-ORIGIN_TOLERANCE = 1e-5
-MESH_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
 
 
 @dataclass
@@ -227,16 +127,10 @@ class ValidationResult:
 
 
 def to_tmf_mm(value):
-    """Coordinate as written to the .3ds (TMF Maxbox millimeters).
-
-    The exporter writes Blender floats as-is (MASTERSCALE = 1). TMF cars are
-    authored at 0.1% scale with 1 scene unit = 1 mm, so validation must use the
-    same numbers — never multiply by 1000 (that falsely treats Maxbox mm as meters).
-    """
+    """Coordinate as written to the .3ds (TMF Maxbox millimeters)."""
     return value
 
 
-# Back-compat alias (scene argument ignored — kept for older call sites).
 def bu_to_mm(scene, value):
     return to_tmf_mm(value)
 
@@ -263,7 +157,7 @@ def _safe_mesh_vertices(mesh):
 
 
 def count_loose_vertices(mesh):
-    """Count vertices that are not referenced by any polygon (shattered / loose verts)."""
+    """Count vertices that are not referenced by any polygon."""
     verts = _safe_mesh_vertices(mesh)
     if verts is None or len(verts) == 0:
         return 0
@@ -279,7 +173,6 @@ def count_loose_vertices(mesh):
             if 0 <= vi < len(used):
                 used[vi] = True
 
-    # Also mark triangle verts if polygons were empty but loop_triangles exist.
     if not any(used):
         try:
             for tri in mesh.loop_triangles:
@@ -292,23 +185,33 @@ def count_loose_vertices(mesh):
     return sum(1 for flag in used if not flag)
 
 
-def check_absolute_extents_mm(scene, mesh, ob=None):
+def check_absolute_extents_mm(scene, mesh, ob=None, profile=None):
     """
-    Return error suffixes if any vertex is outside absolute TMF world space.
+    Return error suffixes if any vertex is outside the profile MaxBox.
 
-    Export mesh copies are world-baked via data.transform(matrix_world) (2.1.2);
-    vert.co is already in world space — do not multiply by matrix_world again.
-
-    Rotation is not checked separately: only the resulting world verts vs MaxBox.
+    Export mesh copies are world-baked; vert.co is already in world space.
     """
     verts = _safe_mesh_vertices(mesh)
     if verts is None or len(verts) == 0:
         return ["has no evaluable mesh geometry"]
 
-    y_min, y_max = ABS_Y_MM
-    z_min, z_max = ABS_Z_MM
+    if profile is None:
+        abs_x = None
+        abs_y = ABS_Y_MM
+        abs_z = ABS_Z_MM
+        check_x = False
+    else:
+        abs_x = profile.abs_x
+        abs_y = profile.abs_y
+        abs_z = profile.abs_z
+        check_x = profile.check_abs_x
+
+    y_min, y_max = abs_y
+    z_min, z_max = abs_z
     errors = []
     worst = {
+        "x_low": None,
+        "x_high": None,
         "y_low": None,
         "y_high": None,
         "z_low": None,
@@ -317,8 +220,18 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
 
     for vert in verts:
         co = vert.co
+        x_mm = to_tmf_mm(co.x)
         y_mm = to_tmf_mm(co.y)
         z_mm = to_tmf_mm(co.z)
+
+        if check_x and abs_x is not None:
+            x_min, x_max = abs_x
+            if x_mm < x_min - TRANSFORM_TOLERANCE:
+                if worst["x_low"] is None or x_mm < worst["x_low"]:
+                    worst["x_low"] = x_mm
+            elif x_mm > x_max + TRANSFORM_TOLERANCE:
+                if worst["x_high"] is None or x_mm > worst["x_high"]:
+                    worst["x_high"] = x_mm
 
         if y_mm < y_min - TRANSFORM_TOLERANCE:
             if worst["y_low"] is None or y_mm < worst["y_low"]:
@@ -334,6 +247,16 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
             if worst["z_high"] is None or z_mm > worst["z_high"]:
                 worst["z_high"] = z_mm
 
+    if check_x and abs_x is not None:
+        x_min, x_max = abs_x
+        if worst["x_low"] is not None:
+            errors.append(
+                f"X vertex {worst['x_low']:.4f} mm is below absolute min {x_min} mm"
+            )
+        if worst["x_high"] is not None:
+            errors.append(
+                f"X vertex {worst['x_high']:.4f} mm is above absolute max {x_max} mm"
+            )
     if worst["y_low"] is not None:
         errors.append(
             f"Y vertex {worst['y_low']:.4f} mm is below absolute min {y_min} mm"
@@ -354,14 +277,18 @@ def check_absolute_extents_mm(scene, mesh, ob=None):
     return errors
 
 
-def count_export_vertices(mesh_objects):
+def count_export_vertices(mesh_objects, exclude_damage=False):
     """Count vertices the same way the exporter will after triangulation/UV split."""
     from .exporter import count_mesh_export_vertices
 
     total = 0
-    for _ob, mesh in mesh_objects:
+    for ob, mesh in mesh_objects:
         if mesh is None:
             continue
+        if exclude_damage:
+            _base, is_dmg = strip_damage_prefix(ob.name)
+            if is_dmg:
+                continue
         total += count_mesh_export_vertices(mesh)
     return total
 
@@ -386,26 +313,54 @@ def _local_y_world_up_dot(ob):
     return float(y_axis.z)
 
 
-def validate_export(context, mesh_objects, poly_target):
+def _check_damage_morph_twins(mesh_objects, result):
+    """Warn when TM2 _damage mesh vert count differs from undamaged twin."""
+    by_base = {}
+    for ob, mesh in mesh_objects:
+        base, is_dmg = strip_damage_prefix(ob.name)
+        key = base.casefold()
+        by_base.setdefault(key, {"undamaged": None, "damaged": None})
+        entry = by_base[key]
+        try:
+            count = count_mesh_export_vertices_safe(mesh)
+        except Exception:
+            count = None
+        if is_dmg:
+            entry["damaged"] = (ob.name, count)
+        else:
+            entry["undamaged"] = (ob.name, count)
+
+    for _key, pair in by_base.items():
+        und = pair["undamaged"]
+        dmg = pair["damaged"]
+        if und is None or dmg is None:
+            continue
+        und_name, und_count = und
+        dmg_name, dmg_count = dmg
+        if und_count is None or dmg_count is None:
+            continue
+        if und_count != dmg_count:
+            result.add_warning(
+                f"{dmg_name}: damage morph has {dmg_count} verts but "
+                f"{und_name} has {und_count} — indices must match for morphing"
+            )
+
+
+def validate_export(context, mesh_objects, poly_target, profile=None):
     """
-    Validate collected export meshes.
+    Validate collected export meshes for the active game profile.
 
-    Hard format blockers (``format_errors`` / ``format_ok=False``) — always cancel
-    export, even when Strict is off:
-    - Any single mesh exceeding ``MAX_MESH_VERTICES`` (65,535) after UV splits
-      (3DS uint16 vertex-count field)
+    Hard format blockers always cancel export (even Strict off):
+    - Any single mesh exceeding MAX_MESH_VERTICES (65,535)
 
-    Strict blockers (``errors`` / ``ok=False``) — only when Strict is on:
-    - World verts of car body/wheel meshes outside MaxBox Y/Z
-
-    Forever does not require a full United mesh set. Missing meshes are not warned.
-    There is no hard total vertex budget across the whole car.
-
-    Advisories (``warnings``): unapplied scale, bad locations (sBody origin),
-    ProjShad / light rotation (local Y should point up), ProjShad footprint.
+    Strict blockers (when Strict on): MaxBox extents for body/wheel meshes.
     """
+    if profile is None:
+        profile = profile_from_context(context)
+
     result = ValidationResult()
     scene = context.scene
+    shadow_name = profile.shadow_mesh_name.casefold()
 
     checked = set()
     for ob, mesh in mesh_objects:
@@ -415,7 +370,7 @@ def validate_export(context, mesh_objects, poly_target):
 
         verts = _safe_mesh_vertices(mesh)
         if verts is None or len(verts) == 0:
-            if subject_to_strict_extents(ob.name):
+            if subject_to_strict_extents(ob.name, profile):
                 result.add_error(f"{ob.name}: has no evaluable mesh geometry")
             else:
                 result.add_warning(f"{ob.name}: has no evaluable mesh geometry")
@@ -427,19 +382,15 @@ def validate_export(context, mesh_objects, poly_target):
                 f"(Apply Scale recommended)"
             )
 
-        # ProjShad / light helpers: local Y should point roughly world-up (TM pivot).
-        if is_projector_mesh(ob.name) or is_optional_light_helper(ob.name):
+        if is_projector_mesh(ob.name, profile) or is_optional_light_helper(ob.name, profile):
             up_dot = _local_y_world_up_dot(ob)
             base = _strip_blender_suffix(ob.name)
-            # Front lights often face the car (+Y toward center) — only enforce
-            # Y-up strongly for ProjShad. Light helpers still warn if Y is almost
-            # horizontal (clearly wrong pivot).
-            if base.casefold() == "projshad":
+            if base.casefold() == shadow_name:
                 if up_dot < 0.7:
                     result.add_warning(
                         f"{ob.name}: local Y should point up "
                         f"(world-up alignment {up_dot:.2f}; "
-                        f"use Helpers → ProjShad or rotate so Y is up)"
+                        f"use Helpers → {profile.shadow_mesh_name} or rotate so Y is up)"
                     )
             elif abs(up_dot) < 0.15 and base.casefold().startswith("lightfproj"):
                 result.add_warning(
@@ -447,14 +398,13 @@ def validate_export(context, mesh_objects, poly_target):
                     f"(world-up alignment {up_dot:.2f})"
                 )
 
-        if subject_to_strict_extents(ob.name):
+        if subject_to_strict_extents(ob.name, profile):
             try:
-                for msg in check_absolute_extents_mm(scene, mesh, ob):
+                for msg in check_absolute_extents_mm(scene, mesh, ob, profile=profile):
                     result.add_error(f"{ob.name}: {msg}")
             except Exception as exc:
                 result.add_error(f"{ob.name}: absolute extent check failed ({exc})")
 
-        # Hard per-mesh 3DS limit (uint16 count) — always blocks export.
         try:
             mesh_vert_count = count_mesh_export_vertices_safe(mesh)
         except Exception as exc:
@@ -466,17 +416,15 @@ def validate_export(context, mesh_objects, poly_target):
                 f"of {MAX_MESH_VERTICES} (3DS uint16 — split the mesh)"
             )
 
-        # Projector footprint — advisory (zero size → Quality 2 bbox 0).
-        if is_projector_mesh(ob.name):
+        if is_projector_mesh(ob.name, profile):
             dims = ob.dimensions
-            # Rotated ProjShad (+90° X) has footprint on X/Z, not X/Y.
             footprint = max(float(dims.x), float(dims.y), float(dims.z))
             base = _strip_blender_suffix(ob.name)
-            if base.casefold() == "projshad":
+            if base.casefold() == shadow_name:
                 if footprint < MIN_PROJSHAD_FOOTPRINT:
                     result.add_warning(
                         f"{ob.name}: footprint {footprint:.4f} too small "
-                        f"(need ≥ {MIN_PROJSHAD_FOOTPRINT}; Quality 2 bbox → 0)"
+                        f"(need ≥ {MIN_PROJSHAD_FOOTPRINT})"
                     )
             elif footprint < MIN_LIGHTFPROJ_EXTENT:
                 result.add_warning(
@@ -484,9 +432,9 @@ def validate_export(context, mesh_objects, poly_target):
                     f"(need ≥ {MIN_LIGHTFPROJ_EXTENT})"
                 )
 
-    # Engine anchors suspension / tires from sBody origin — advisory for Forever.
     for ob, _mesh in mesh_objects:
-        if ob.name != "sBody":
+        base = _strip_blender_suffix(ob.name)
+        if base not in profile.origin_mesh_names:
             continue
         loc = ob.location
         if (
@@ -495,9 +443,12 @@ def validate_export(context, mesh_objects, poly_target):
             or abs(loc.z) > ORIGIN_TOLERANCE
         ):
             result.add_warning(
-                f"sBody: origin preferably at (0, 0, 0), found "
+                f"{base}: origin preferably at (0, 0, 0), found "
                 f"({loc.x:.6f}, {loc.y:.6f}, {loc.z:.6f})"
             )
+
+    if profile.allow_damage_prefix:
+        _check_damage_morph_twins(mesh_objects, result)
 
     if not mesh_objects:
         result.add_error("No objects selected for export")

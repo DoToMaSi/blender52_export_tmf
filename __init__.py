@@ -16,6 +16,7 @@ from . import (
     export_operator,
     exporter,
     format_3ds,
+    game_profiles,
     import_operator,
     importer,
     material_utils,
@@ -27,6 +28,7 @@ from . import (
 
 _MODULES = (
     format_3ds,
+    game_profiles,
     material_utils,
     tmf_validation,
     addon_info,

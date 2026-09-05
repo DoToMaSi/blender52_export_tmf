@@ -71,9 +71,8 @@ from .material_utils import (
     get_material_export_data,
     get_object_texture_reference,
 )
+from .game_profiles import get_profile, profile_from_context
 from .tmf_validation import (
-    ABS_Y_MM,
-    ABS_Z_MM,
     OPTIONAL_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
@@ -83,22 +82,54 @@ from .tmf_validation import (
     to_tmf_mm,
 )
 
+# Forever defaults kept for modules that import these symbols.
 ALLOWED_MESH_NAMES = mesh_export_names() | frozenset(OPTIONAL_MESHES)
 MESH_CHUNK_NAMES = mesh_export_names()
 
 
-def forced_material_name(object_name):
+def forced_material_name(object_name, profile=None):
     """Override MATERIAL name only for projector meshes (when exported)."""
-    if not is_projector_mesh(object_name):
+    if not is_projector_mesh(object_name, profile):
         return None
     base = (
         object_name.rsplit(".", 1)[0]
         if "." in object_name and object_name.rsplit(".", 1)[1].isdigit()
         else object_name
     )
-    if base.casefold() == "projshad":
+    folded = base.casefold()
+    if folded == "projshad":
         return "ProjShad"
-    return "LightFProj"
+    if folded == "fakeshad":
+        return "FakeShad"
+    if folded.startswith("lightfproj"):
+        return "LightFProj"
+    return None
+
+
+def _is_exportable_mesh(name, profile):
+    """Profile-aware allowlist for mesh OBJECT chunks."""
+    if is_export_blacklisted(name):
+        return False
+    if profile.is_mesh_chunk_name(name):
+        return True
+    if profile.is_projector_mesh(name) or profile.is_optional_light_helper(name):
+        return True
+    # Forever exact-name fallback for bodies still in MESH_CHUNK_NAMES set
+    if name in profile.mesh_chunk_names:
+        return True
+    return False
+
+
+def _is_shadow_projector_name(name, profile=None):
+    base = (
+        name.rsplit(".", 1)[0]
+        if "." in name and name.rsplit(".", 1)[1].isdigit()
+        else name
+    )
+    folded = base.casefold()
+    if profile is not None:
+        return folded == profile.shadow_mesh_name.casefold()
+    return folded in ("projshad", "fakeshad")
 
 
 def export_material_name(object_name, material=None, texture_filename=None):
@@ -807,13 +838,13 @@ def _mesh_aabb_size(mesh):
 
 
 def _is_projshad_name(name):
-    base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].isdigit() else name
-    return base.casefold() == "projshad"
+    """Forever ProjShad or TM2 FakeShad (shadow projector plane)."""
+    return _is_shadow_projector_name(name)
 
 
 def apply_projshad_tm_orientation(mesh):
     """
-    TM expects ProjShad with Y-up pivot (guide: local Y like reference Z).
+    TM expects shadow projector with Y-up pivot (guide: local Y like reference Z).
 
     Blender ground planes are Z-up (thin on Z). Empirically, +90° about X fixes
     the in-game fake shadow. If the mesh is already thin on Y (user pre-rotated),
@@ -852,19 +883,29 @@ def _evaluated_mesh_copy(obj, depsgraph):
         return None
 
 
-def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
+def collect_mesh_data(
+    context,
+    use_selection,
+    verbose=False,
+    log_lines=None,
+    game_target=None,
+    profile=None,
+):
     """Gather body/wheel/projector/light meshes and Empty light helpers for export.
 
-    MaxBox is always stripped (scale guide). ProjShad / LightFProj are exported
-    as real meshes. Light helper *meshes* get a full OBJECT chunk like 2.1.2
-    (flare origin comes from that transform). Only Empty light helpers are
-    KFDATA-only — stripping mesh lights to KF-only parked flares at (0,0,0).
+    MaxBox is always stripped (scale guide). ProjShad / FakeShad / LightFProj are
+    exported as real meshes. Light helper *meshes* get a full OBJECT chunk.
+    Only Empty light helpers are KFDATA-only.
     """
+    if profile is None:
+        if game_target:
+            profile = get_profile(game_target)
+        else:
+            profile = profile_from_context(context)
+
     scene = context.scene
     visible = [ob for ob in scene.objects if ob.visible_get()]
     if use_selection:
-        # Selection Only is absolute: no force-include of required/projector meshes.
-        # Strict validation (if on) still reports missing required names after collect.
         objects = [ob for ob in visible if ob.select_get()]
     else:
         objects = visible
@@ -877,6 +918,12 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
     depsgraph = context.evaluated_depsgraph_get()
 
     _vlog(verbose, "----- Collect -----", log_lines)
+    _vlog(
+        verbose,
+        f"Game target: {profile.id} ({profile.label})",
+        log_lines,
+        to_console=True,
+    )
     _vlog(
         verbose,
         f"Candidates: {len(objects)} visible"
@@ -893,10 +940,8 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
             )
             continue
 
-        # 2.1.2: only Empties are KFDATA-only. Mesh light helpers keep an OBJECT chunk
-        # so the flare uses the mesh transform (not world origin).
         if ob.type == "EMPTY":
-            if is_optional_light_helper(ob.name):
+            if is_optional_light_helper(ob.name, profile):
                 empty_objects.append(ob)
                 _vlog(
                     verbose,
@@ -913,11 +958,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                 )
             continue
 
-        if (
-            ob.name not in MESH_CHUNK_NAMES
-            and not is_projector_mesh(ob.name)
-            and not is_optional_light_helper(ob.name)
-        ):
+        if not _is_exportable_mesh(ob.name, profile):
             _vlog(
                 verbose,
                 f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}",
@@ -950,11 +991,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                     log_lines,
                 )
                 continue
-            if (
-                ob_derived.name not in MESH_CHUNK_NAMES
-                and not is_projector_mesh(ob_derived.name)
-                and not is_optional_light_helper(ob_derived.name)
-            ):
+            if not _is_exportable_mesh(ob_derived.name, profile):
                 _vlog(
                     verbose,
                     f"  [SKIP] {ob_derived.name}  reason=not a body/wheel/projector/light",
@@ -973,23 +1010,21 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                 )
                 continue
 
-            # 2.1.2 / 4KEX: bake derived world matrix into verts. TM expects world-space
-            # coordinates while OBJECT_TRANS_MATRIX / POS_TRACK still carry the hub
-            # location (rotation pivot). Local-only verts made Quality 2 use a
-            # hub-centered wheel AABB (~±0.33) that fails the -0.2 floor.
             data.transform(_matrix_world)
-            if _is_projshad_name(ob_derived.name) and apply_projshad_tm_orientation(data):
+            if _is_shadow_projector_name(ob_derived.name, profile) and apply_projshad_tm_orientation(data):
                 _vlog(
                     verbose,
                     f"  [ORIENT] {ob_derived.name}  +90° X "
-                    f"(Blender Z-up plane → TM Y-up ProjShad)",
+                    f"(Blender Z-up plane → TM Y-up {profile.shadow_mesh_name})",
                     log_lines,
                     to_console=True,
                 )
             data.calc_loop_triangles()
             mesh_objects.append((ob_derived, data))
 
-            texture_filename, image = get_object_texture_reference(ob_derived, data)
+            texture_filename, image = get_object_texture_reference(
+                ob_derived, data, game_target=profile.id
+            )
             texture_info[ob_derived.name] = (texture_filename, image)
             _register_materials(material_dict, ob_derived, data, texture_filename)
             log_export_object(
@@ -1001,7 +1036,7 @@ def collect_mesh_data(context, use_selection, verbose=False, log_lines=None):
                 status="COLLECTED",
                 log_lines=log_lines,
             )
-            if is_optional_light_helper(ob_derived.name):
+            if is_optional_light_helper(ob_derived.name, profile):
                 _vlog(
                     verbose,
                     f"         (light helper mesh — OBJECT chunk for flare origin)",
@@ -1154,12 +1189,13 @@ def do_export(
             _vlog(verbose, "  No material/UV warnings.", log_lines)
 
         present = set(name_to_id.keys())
-        if any(is_projector_mesh(n) and n.casefold().startswith("proj") for n in present) or (
-            "ProjShad" in present
-        ):
+        if any(
+            n.casefold().startswith("proj") or "fakeshad" in n.casefold()
+            for n in present
+        ) or ("ProjShad" in present) or ("FakeShad" in present):
             _vlog(
                 verbose,
-                "  [OK] ProjShad mesh in .3ds (Quality 2 projector)",
+                "  [OK] Shadow projector mesh in .3ds (ProjShad / FakeShad)",
                 log_lines,
             )
         if any(is_projector_mesh(n) and n.casefold().startswith("lightf") for n in present):

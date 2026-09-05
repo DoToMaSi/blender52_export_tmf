@@ -1,10 +1,22 @@
-# TrackMania Forever 3DS
+# TrackMania Forever / TM2 3DS
 
-Blender **5.2** extension for authoring **TrackMania Nations / United Forever** car geometry: import/export `.3ds`, scene setup, validation, and helper spawners.
+Blender **5.2** extension for authoring **TrackMania Nations / United Forever** and **TrackMania 2 (ManiaPlanet)** car geometry: import/export `.3ds`, scene setup, validation, and helper spawners.
 
 Based on the original Blender 2.81 exporter by Glauco Bacchi, Campbell Barton, Bob Holcomb, Richard Lärkäng, Damien McGinnes, Mark Stijnman, and Sergey Savkin. Updated for Blender 5.2 by Douglas Tomacheski.
 
-TMF workflow reference: car model conversion tutorial by trick@ugghost.com (2008).
+TMF workflow reference: car model conversion tutorial by trick@ugghost.com (2008).  
+TM2 workflow reference: [Import a car skin](https://doc.maniaplanet.com/customization/importer/import-a-car-skin) (hideou.se / maniadoc).
+
+## Game Target
+
+In the **TMF** N-panel (and on Import / Export dialogs), choose:
+
+| Target | Use for |
+|---|---|
+| **TrackMania Forever** | Classic Forever naming (`sBody`, `ProjShad`, `Diffuse.dds` / `Details.dds`) |
+| **TrackMania 2** | ManiaPlanet naming (`dBody`, `FakeShad`, `SkinDiffuse` / `DetailsDiffuse` / `WheelsDiffuse`, damage `_dBody`, …) |
+
+Forever behavior is unchanged when Game Target is Forever. TM2 switches allowlists, MaxBox (`X∈[-1.5,1.5]`, `Y∈[-3,3]`, `Z∈[-0.2,2.5]`), poly targets (Very High 60k / High 20k / Low 4250), helpers, and texture map hints.
 
 ## Requirements
 
@@ -103,9 +115,10 @@ blender --command extension build
 
 | Tool | Action |
 |---|---|
-| **Prepare TMF Scene** | Metric units, tight view clips, optional **MaxBox** and **Name Collections** |
-| **Validate TMF Scene** | Same checks as export (MaxBox Strict + hard per-mesh 65,535 verts), without writing a file |
-| **Helpers** | Spawn `ProjShad`, `LightFProj`, `LightFL1/FR1/RL/RR` as meshes |
+| **Game Target** | Forever or TrackMania 2 — switches names, MaxBox, helpers, textures |
+| **Prepare Scene** | Metric units, tight view clips, optional **MaxBox** and **Name Collections** |
+| **Validate Scene** | Same checks as export (format + Strict), without writing a file |
+| **Helpers** | Spawn `ProjShad` (Forever) or `FakeShad` (TM2), `LightFProj`, light markers |
 | **Import / Export** | Shortcuts to the File menu operators |
 
 ### Import
@@ -213,6 +226,7 @@ blender_export_tmf/
 │   ├── package-release.sh     # Local build + bundle (Linux/macOS)
 │   ├── ci-build.ps1           # Wrapper → package-release.ps1
 │   └── ci-build.sh            # Wrapper → package-release.sh
+├── game_profiles.py           # Forever vs TM2 naming / MaxBox / textures
 ├── blender_manifest.toml
 ├── __init__.py
 ├── export_operator.py         # File > Export
@@ -221,9 +235,9 @@ blender_export_tmf/
 ├── importer.py                # 3DS import + hub un-bake
 ├── format_3ds.py              # Chunk read/write
 ├── material_utils.py          # Principled BSDF + texture helpers
-├── tmf_validation.py          # Strict validation
+├── tmf_validation.py          # Strict + format validation
 ├── tmf_scene.py               # Prepare scene + validate operator
-├── tmf_helpers.py             # ProjShad / light spawners
+├── tmf_helpers.py             # ProjShad / FakeShad / light spawners
 └── ui_panel.py                # View3D N-panel (TMF tab)
 ```
 
