@@ -73,6 +73,8 @@ from .material_utils import (
 )
 from .game_profiles import get_profile, profile_from_context
 from .tmf_validation import (
+    ABS_Y_MM,
+    ABS_Z_MM,
     OPTIONAL_MESHES,
     REQUIRED_MESHES,
     is_export_blacklisted,
@@ -289,7 +291,16 @@ def _material_slot_names(ob, mesh):
     return names
 
 
-def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", log_lines=None):
+def log_export_object(
+    ob,
+    mesh,
+    texture_filename,
+    image,
+    verbose,
+    status="OK",
+    log_lines=None,
+    profile=None,
+):
     """Record one verbose block for a collected / written object.
 
     Detail goes to the sidecar log; only the status line hits the System Console
@@ -339,8 +350,14 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
             f"hub_location={_fmt_vec(loc)}  (verts world-baked like 2.1.2)"
         )
         if bounds is not None:
-            y_lo, y_hi = ABS_Y_MM
-            z_lo, z_hi = ABS_Z_MM
+            if profile is not None:
+                y_lo, y_hi = profile.abs_y
+                z_lo, z_hi = profile.abs_z
+                box_label = profile.id
+            else:
+                y_lo, y_hi = ABS_Y_MM
+                z_lo, z_hi = ABS_Z_MM
+                box_label = "TMF"
             if (
                 bounds["min"][1] < y_lo
                 or bounds["max"][1] > y_hi
@@ -348,8 +365,8 @@ def log_export_object(ob, mesh, texture_filename, image, verbose, status="OK", l
                 or bounds["max"][2] > z_hi
             ):
                 out(
-                    f"         [WARN] export_aabb outside TMF max box "
-                    f"Y{list(ABS_Y_MM)} Z{list(ABS_Z_MM)}",
+                    f"         [WARN] export_aabb outside {box_label} max box "
+                    f"Y{[y_lo, y_hi]} Z{[z_lo, z_hi]}",
                     to_console=True,
                 )
     out(f"         blender_slots={bind['blender_slots'] or '<none>'}")
@@ -1045,6 +1062,7 @@ def collect_mesh_data(
                 verbose,
                 status="COLLECTED",
                 log_lines=log_lines,
+                profile=profile,
             )
             if is_optional_light_helper(ob_derived.name, profile):
                 _vlog(
@@ -1071,10 +1089,13 @@ def do_export(
     verbose=False,
     texture_info=None,
     log_lines=None,
+    profile=None,
 ):
     """Save the Blender scene to a 3DS file."""
     reset_name_tables()
     texture_info = texture_info or {}
+    if profile is None:
+        profile = profile_from_context(context)
 
     primary = _3ds_chunk(PRIMARY)
     version_chunk = _3ds_chunk(VERSION)
@@ -1161,6 +1182,7 @@ def do_export(
                 verbose,
                 status="WRITTEN",
                 log_lines=log_lines,
+                profile=profile,
             )
         except Exception as exc:
             _vlog(verbose, f"  [FAIL] {ob.name}  reason=write error: {exc}", log_lines)

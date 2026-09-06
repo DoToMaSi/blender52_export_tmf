@@ -222,6 +222,7 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                     verbose=verbose,
                     texture_info=texture_info,
                     log_lines=log_lines,
+                    profile=profile,
                 )
                 export_ok = True
             finally:
