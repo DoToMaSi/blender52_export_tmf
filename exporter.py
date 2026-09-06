@@ -80,6 +80,7 @@ from .tmf_validation import (
     is_projector_mesh,
     mesh_export_names,
     to_tmf_mm,
+    warn_unknown_object_name,
 )
 
 # Forever defaults kept for modules that import these symbols.
@@ -914,6 +915,7 @@ def collect_mesh_data(
     empty_objects = []
     material_dict = {}
     texture_info = {}
+    name_warnings = []
 
     depsgraph = context.evaluated_depsgraph_get()
 
@@ -951,6 +953,7 @@ def collect_mesh_data(
                     log_lines,
                 )
             else:
+                # Non-light Empties are common scene helpers — do not warn.
                 _vlog(
                     verbose,
                     f"  [SKIP] {ob.name}  reason=Empty (not on light allowlist)",
@@ -958,7 +961,12 @@ def collect_mesh_data(
                 )
             continue
 
+        if ob.type not in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
+            continue
+
         if not _is_exportable_mesh(ob.name, profile):
+            warn = warn_unknown_object_name(ob.name, profile, kind="mesh")
+            name_warnings.append(warn)
             _vlog(
                 verbose,
                 f"  [SKIP] {ob.name}  reason=not on allowlist  type={ob.type}",
@@ -992,6 +1000,8 @@ def collect_mesh_data(
                 )
                 continue
             if not _is_exportable_mesh(ob_derived.name, profile):
+                warn = warn_unknown_object_name(ob_derived.name, profile, kind="mesh")
+                name_warnings.append(warn)
                 _vlog(
                     verbose,
                     f"  [SKIP] {ob_derived.name}  reason=not a body/wheel/projector/light",
@@ -1049,7 +1059,7 @@ def collect_mesh_data(
         f"{len(empty_objects)} KF-only Empty light(s)",
         log_lines,
     )
-    return mesh_objects, empty_objects, material_dict, texture_info
+    return mesh_objects, empty_objects, material_dict, texture_info, name_warnings
 
 
 def do_export(

@@ -163,6 +163,8 @@ Model at **0.1% of real size** (e.g. 2800 mm wheelbase → 2.8 mm in scene).
 
 Wheel suffixes: `FL`, `FR`, `RL`, `RR`. Keep **hub origins** on wheels (do not Apply Location).
 
+Suspension / hubs (`dFLHub`, `dFLArmTop`, `dRLCardan`, …) are exported as meshes when named correctly.
+
 ### Exported helpers (meshes)
 
 | Name | Role |
@@ -206,7 +208,7 @@ Optional: horn/engine sounds, `ProjShad.dds`, dirty variants, `Credits.txt`.
 | Problem | Check |
 |---|---|
 | Export / validate blocked | MaxBox Y/Z on body/wheels (Strict), or any mesh over **65,535** verts (always) |
-| Soft warnings | Unapplied scale, sBody origin, ProjShad Y-up rotation / footprint — not missing meshes |
+| Soft warnings | Unknown/invalid object names (always), unapplied scale, sBody origin, ProjShad Y-up / footprint |
 | Model invisible in game | Object spelling, vertex count, scale |
 | Wrong paint/details | UV layout and Diffuse vs Details assignment |
 | Import hubs wrong | Round-trip is tuned for this exporter’s files |

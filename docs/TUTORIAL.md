@@ -80,13 +80,13 @@ Suffixes: **FL**, **FR**, **RL**, **RR**.
 
 **TrackMania Forever** can import a **partial** car (even a single `sBody`). Missing parts are **not** warned — export whatever you have.
 
-### Suspension (optional)
+### Suspension (optional but exported)
 
 From the [conversion guide](https://www.ugghost.com/tutorials/tmu-f/3d_model_conversion_for_tmu.htm):
 
 - `dxxHub`, `dxxArmTop`, `dxxArmBot`, `dxxArmDir`, `dxxSusp`, `dxxGuard`, `dxxCardan` (xx = FL, FR, RL, RR as applicable)
 
-Use the **TMF Mesh Names** collections (created by **Prepare TMF Scene**) as a spelling guide — drag meshes into the matching collection.
+These are **exported as meshes** when named correctly (same allowlist as body/wheels). Use the **TMF Mesh Names** collections (created by **Prepare TMF Scene**) as a spelling guide — drag meshes into the matching collection.
 
 ### Shadows, lights, and projectors
 

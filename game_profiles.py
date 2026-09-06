@@ -49,6 +49,34 @@ TMF_OPTIONAL_CAR = (
     "dPilHead",
 )
 
+# Suspension / hubs / guards — exported as real meshes (ugghost / United set).
+# Previously only listed in the Outliner name guide, so collect skipped them.
+TMF_SUSPENSION = (
+    "dFLArmBot",
+    "dFLArmDir",
+    "dFLArmTop",
+    "dFLGuard",
+    "dFLHub",
+    "dFRArmBot",
+    "dFRArmDir",
+    "dFRArmTop",
+    "dFRGuard",
+    "dFRHub",
+    "dRLArmBot",
+    "dRLArmTop",
+    "dRLCardan",
+    "dRLHub",
+    "dRRArmBot",
+    "dRRArmTop",
+    "dRRCardan",
+    "dRRHub",
+    # Skin-prefixed variants if authored that way
+    "sFLHub",
+    "sFRHub",
+    "sRLHub",
+    "sRRHub",
+)
+
 TMF_PROJECTORS = (
     "ProjShad",
     "LightFProj",
@@ -350,6 +378,21 @@ class GameProfile:
             return True
         if self.allow_damage_prefix and is_dmg and folded in self._chunk_fold:
             return True
+        # Forever: also accept s/d + known suspension stems (Arm/Hub/Guard/Cardan/Susp)
+        if self.id == "TMF" and len(base) >= 2 and base[0] in "sdSD":
+            stem = base[1:]
+            for corner in ("FL", "FR", "RL", "RR"):
+                for kind in (
+                    "ArmBot",
+                    "ArmDir",
+                    "ArmTop",
+                    "Hub",
+                    "Guard",
+                    "Cardan",
+                    "Susp",
+                ):
+                    if stem == f"{corner}{kind}":
+                        return True
         # TM2: accept any s/d/g/w + known openable/wheel/susp stem
         if self.id == "TM2":
             if self.is_projector_mesh(name) or self.is_optional_light_helper(name):
@@ -412,7 +455,12 @@ class GameProfile:
 
 
 def _make_tmf_profile():
-    chunk = frozenset(TMF_RECOMMENDED) | frozenset(TMF_OPTIONAL_CAR) | frozenset(TMF_PROJECTORS)
+    chunk = (
+        frozenset(TMF_RECOMMENDED)
+        | frozenset(TMF_OPTIONAL_CAR)
+        | frozenset(TMF_SUSPENSION)
+        | frozenset(TMF_PROJECTORS)
+    )
     return GameProfile(
         id="TMF",
         label="TrackMania Forever",

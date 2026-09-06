@@ -69,6 +69,29 @@ def is_export_blacklisted(name):
     return _strip_blender_suffix(name).casefold() in EXPORT_HELPER_BLACKLIST
 
 
+def warn_unknown_object_name(name, profile, kind="mesh"):
+    """Advisory for a visible object skipped because its name is not allowlisted."""
+    from difflib import get_close_matches
+
+    base = _strip_blender_suffix(name)
+    candidates = sorted(
+        set(profile.mesh_chunk_names)
+        | set(profile.optional_light_names)
+        | set(profile.projector_names)
+        | set(profile.name_guide_meshes)
+    )
+    close = get_close_matches(base, candidates, n=1, cutoff=0.72)
+    if close:
+        return (
+            f"{name}: unknown/invalid {kind} name (skipped) — "
+            f"did you mean '{close[0]}'?"
+        )
+    return (
+        f"{name}: unknown/invalid {kind} name (skipped — not on "
+        f"{profile.id} allowlist)"
+    )
+
+
 def is_projector_mesh(name, profile=None):
     """True for shadow / headlight projector meshes."""
     if profile is not None:

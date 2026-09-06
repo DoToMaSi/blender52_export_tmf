@@ -236,7 +236,7 @@ class TMF_OT_validate_scene(bpy.types.Operator):
         empty_objects = []
         profile = get_profile(self.game_target)
         try:
-            mesh_objects, empty_objects, _mats, _tex = collect_mesh_data(
+            mesh_objects, empty_objects, _mats, _tex, name_warnings = collect_mesh_data(
                 context,
                 self.use_selection,
                 verbose=False,
@@ -245,11 +245,15 @@ class TMF_OT_validate_scene(bpy.types.Operator):
             )
             if not mesh_objects and not empty_objects:
                 self.report({"ERROR"}, "No allowlisted meshes found for this game target")
+                for warn in name_warnings[:8]:
+                    self.report({"WARNING"}, warn)
                 return {"CANCELLED"}
 
             validation = validate_export(
                 context, mesh_objects, self.poly_target, profile=profile
             )
+            for warn in name_warnings:
+                validation.add_warning(warn)
             settings = getattr(context.scene, "tmf_settings", None)
 
             lines = []

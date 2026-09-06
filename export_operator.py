@@ -60,8 +60,8 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
         description=(
             "Block export when body/wheel world vertices fall outside the game MaxBox. "
             "Per-mesh vertex overflow (over 65,535 — 3DS uint16) always blocks export "
-            "even when Strict is off. Warnings cover scale, locations, and shadow "
-            "projector rotation (local Y should point up)"
+            "even when Strict is off. Warnings always cover unknown/invalid names, "
+            "scale, locations, and shadow projector rotation (local Y should point up)"
         ),
         default=True,
     )
@@ -112,19 +112,24 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
             log_lines.append(header)
 
         try:
-            mesh_objects, empty_objects, material_dict, texture_info = collect_mesh_data(
-                context,
-                self.use_selection,
-                verbose=verbose,
-                log_lines=log_lines,
-                game_target=self.game_target,
-                profile=profile,
+            mesh_objects, empty_objects, material_dict, texture_info, name_warnings = (
+                collect_mesh_data(
+                    context,
+                    self.use_selection,
+                    verbose=verbose,
+                    log_lines=log_lines,
+                    game_target=self.game_target,
+                    profile=profile,
+                )
             )
 
             if not mesh_objects and not empty_objects:
                 self.report({"ERROR"}, "Nothing to export (no allowlisted meshes found)")
                 if verbose:
                     log_lines.append("Nothing to export (no allowlisted meshes found)")
+                if name_warnings:
+                    for warn in name_warnings[:8]:
+                        self.report({"WARNING"}, warn)
                 return {"CANCELLED"}
 
             validation = validate_export(
@@ -133,15 +138,19 @@ class Export_tmf(bpy.types.Operator, bpy_extras.io_utils.ExportHelper):
                 self.poly_target,
                 profile=profile,
             )
+            # Unknown/invalid names are always advisory (Strict on or off).
+            for warn in name_warnings:
+                validation.add_warning(warn)
 
-            # Soft advisories always (Strict on or off).
+            # Soft advisories always (Strict on or off), including unknown names.
             if validation.warnings:
+                print("----- Validation warnings -----")
                 if verbose:
-                    print("----- Validation warnings -----")
                     log_lines.append("----- Validation warnings -----")
-                    for warn in validation.warnings:
-                        line = f"  [WARN] {warn}"
-                        print(line)
+                for warn in validation.warnings:
+                    line = f"  [WARN] {warn}"
+                    print(line)
+                    if verbose:
                         log_lines.append(line)
                 for warn in validation.warnings[:8]:
                     self.report({"WARNING"}, warn)
