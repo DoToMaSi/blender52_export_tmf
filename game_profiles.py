@@ -182,7 +182,8 @@ _TM2_SUSP = (
     "RRCardan",
     "RRSusp",
 )
-_TM2_OPENABLE = ("LDoor", "RDoor", "Hood", "Trunk")
+# Detachable / animated parts shared by d/s/w (and some g) primitives
+_TM2_OPENABLE = ("LDoor", "RDoor", "Hood", "Trunk", "Exhaust")
 _TM2_GLASS = (
     "gBody",
     "gFWShield",
@@ -192,6 +193,8 @@ _TM2_GLASS = (
     "gHood",
     "gTrunk",
 )
+# Flame dummies — pivot marks exhaust plume (Exhaust1 … Exhaust8)
+_TM2_EXHAUST_HELPERS = tuple(f"Exhaust{i}" for i in range(1, 9))
 
 
 def _tm2_build_mesh_names():
@@ -199,10 +202,13 @@ def _tm2_build_mesh_names():
         "sBody",
         "dBody",
         "gBody",
+        "pBody",
         "FakeShad",
         "LightFProj",
         "RLLight",
         "RRLight",
+        "FLLight",
+        "FRLight",
         "LightFL1",
         "LightFR1",
         "LightFL2",
@@ -212,17 +218,17 @@ def _tm2_build_mesh_names():
         "LightRL",
         "LightRR",
         "WheelMin",
+        *_TM2_EXHAUST_HELPERS,
     }
     for part in _TM2_OPENABLE:
         names.add(f"d{part}")
         names.add(f"s{part}")
+        names.add(f"w{part}")
     for g in _TM2_GLASS:
         names.add(g)
     for corner in _TM2_WHEEL_CORNERS:
         for kind in _TM2_WHEEL_KINDS:
             # dFLWheel / wFLWheel (Details vs WheelsDiffuse sheets)
-            if kind == "Guard" and corner in ("RL", "RR"):
-                continue
             names.add(f"d{corner}{kind}")
             names.add(f"w{corner}{kind}")
             names.add(f"s{corner}{kind}")
@@ -254,10 +260,11 @@ TM2_LIGHTS = (
     "LightRR",
     "RLLight",
     "RRLight",
+    "FLLight",
+    "FRLight",
     "FLLight1",
     "FRLight1",
-    "RLLight",
-    "RRLight",
+    *_TM2_EXHAUST_HELPERS,
 )
 
 TM2_NAME_GUIDE = tuple(
@@ -265,6 +272,7 @@ TM2_NAME_GUIDE = tuple(
         {
             "sBody",
             "dBody",
+            "pBody",
             "_dBody",
             "dHood",
             "_dHood",
@@ -274,6 +282,9 @@ TM2_NAME_GUIDE = tuple(
             "_dRDoor",
             "dTrunk",
             "_dTrunk",
+            "dExhaust",
+            "sExhaust",
+            "wExhaust",
             *_TM2_GLASS,
             "_gBody",
             "_gFWShield",
@@ -292,6 +303,8 @@ TM2_NAME_GUIDE = tuple(
             "dRRHub",
             "dFLGuard",
             "dFRGuard",
+            "dRLGuard",
+            "dRRGuard",
             *[f"d{s}" for s in _TM2_SUSP],
             "FakeShad",
             "LightFProj",
@@ -300,6 +313,7 @@ TM2_NAME_GUIDE = tuple(
             "RLLight",
             "RRLight",
             "WheelMin",
+            "Exhaust1",
         }
     )
 )
@@ -393,11 +407,17 @@ class GameProfile:
                 ):
                     if stem == f"{corner}{kind}":
                         return True
-        # TM2: accept any s/d/g/w + known openable/wheel/susp stem
+        # TM2: accept s/d/g/w/p + known openable/wheel/susp/pilot stems
         if self.id == "TM2":
             if self.is_projector_mesh(name) or self.is_optional_light_helper(name):
                 return True
             if folded == "wheelmin":
+                return True
+            # Exhaust1 … Exhaust8 flame helpers
+            if folded.startswith("exhaust") and folded[7:].isdigit():
+                return True
+            # Pilot sheet — any p[Name] (pBody, …)
+            if len(base) >= 2 and base[0] in "pP":
                 return True
             if len(base) >= 2 and base[0] in "sdgwSDGW":
                 stem = base[1:]
@@ -420,7 +440,11 @@ class GameProfile:
             return False
         if self.is_projector_mesh(name) or self.is_optional_light_helper(name):
             return False
-        if strip_blender_suffix(name).casefold() == "wheelmin":
+        base = strip_blender_suffix(name)
+        folded = base.casefold()
+        if folded == "wheelmin":
+            return False
+        if folded.startswith("exhaust") and folded[7:].isdigit():
             return False
         return True
 
@@ -434,8 +458,12 @@ class GameProfile:
         if folded.startswith("lightfproj"):
             return "LightFProj.dds"
         if self.id == "TM2":
+            if folded.startswith("exhaust") and folded[7:].isdigit():
+                return None
             if base.startswith("w") or base.startswith("W"):
                 return "WheelsDiffuse.dds"
+            if base.startswith("p") or base.startswith("P"):
+                return "Pilot.dds"
             if base.startswith("s") or base.startswith("S"):
                 return "SkinDiffuse.dds"
             if base.startswith("d") or base.startswith("D"):

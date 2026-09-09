@@ -14,7 +14,7 @@ In the **TMF** N-panel (and on Import / Export dialogs), choose:
 | Target | Use for |
 |---|---|
 | **TrackMania Forever** | Classic Forever naming (`sBody`, `ProjShad`, `Diffuse.dds` / `Details.dds`) |
-| **TrackMania 2** | ManiaPlanet naming (`dBody`, `FakeShad`, `SkinDiffuse` / `DetailsDiffuse` / `WheelsDiffuse`, damage `_dBody`, …) |
+| **TrackMania 2** | ManiaPlanet naming (`dBody`, `dExhaust`, `FakeShad`, `SkinDiffuse` / `DetailsDiffuse` / `WheelsDiffuse` / `Pilot.dds`, damage `_dBody`, …) |
 
 Forever behavior is unchanged when Game Target is Forever. TM2 switches allowlists, MaxBox (`X∈[-1.5,1.5]`, `Y∈[-3,3]`, `Z∈[-0.2,2.5]`), poly targets (Very High 60k / High 20k / Low 4250), helpers, and texture map hints.
 

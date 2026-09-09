@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "export_3ds_tmf"
-version = "3.0.3"
+version = "3.0.4"
 name = "TrackMania Forever / TM2 3DS"
 tagline = "Import, validate, and export Forever and TM2 car 3DS"
 maintainer = "Douglas Tomacheski"

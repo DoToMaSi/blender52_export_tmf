@@ -28,10 +28,13 @@ When **Game Target = TrackMania 2**:
 | Topic | TM2 |
 |---|---|
 | Main body | Often `dBody` (Details) and/or `sBody` (Skin / paint) |
-| Wheels | `dFLWheel`… and/or `wFLWheel`… (WheelsDiffuse sheet) |
+| Openables | `dHood`, `dTrunk`, `dLDoor`, `dRDoor`, `dExhaust` (also `s*` / `w*` where applicable) |
+| Wheels | `dFLWheel`… and/or `wFLWheel`… (WheelsDiffuse sheet); guards/hubs all corners |
 | Glass | `gFWShield`, `gRWShield`, `gBody`, doors/hood/trunk glass |
+| Pilot | `pBody` / any `p[Name]` → `Pilot.dds` |
 | Damage morph | `_dBody` (same vert count/indices as `dBody`) |
 | Shadow | **`FakeShad`** mesh + `FakeShad.dds` (not ProjShad) |
+| Flame helpers | `Exhaust1` … `Exhaust8` (pivot = plume origin) |
 | MaxBox (Strict) | X ∈ [-1.5, 1.5], Y ∈ [-3, 3], Z ∈ [-0.2, 2.5] |
 | Poly targets | Very High 60k / High 20k / Low 4250 (advisory) |
 | Export LODs | `MainBodyVeryHigh.3ds`, `MainBodyHigh.3ds`, `MainBody.3ds` |
